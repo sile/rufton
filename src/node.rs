@@ -1,9 +1,9 @@
 #[derive(Debug)]
-pub struct RaftNode<S, B> {
+pub struct RaftNode<S, M> {
     pub storage: S,
-    pub broker: B,
+    pub message_broker: M,
 }
 
 pub trait Storage {}
 
-pub trait Broker {}
+pub trait MessageBroker {}
