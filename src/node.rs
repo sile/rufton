@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub struct RaftNode<S, T> {
     pub storage: S,
-    pub transpo7rt: T,
+    pub transport: T,
 }
 
 pub trait JsonLinesStorage {}
