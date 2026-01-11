@@ -78,9 +78,9 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "raftbare"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c3656def8264d8d4461813070f0ed26159dbb9aba235cd2193768a90f1cde04"
+checksum = "3a9974bcc87328d36e891c1780e218108ff23bc3e18cbcc10b45d6933f9f9176"
 
 [[package]]
 name = "raftnode"
