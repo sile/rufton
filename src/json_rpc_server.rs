@@ -65,6 +65,7 @@ impl JsonRpcServer {
 #[derive(Debug)]
 pub struct RpcCaller {
     client: mio::Token,
+    id: Result<i64, String>, // TODO: Either
 }
 
 #[derive(Debug)]
