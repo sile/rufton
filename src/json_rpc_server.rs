@@ -5,7 +5,8 @@ pub struct JsonRpcServer {}
 impl JsonRpcServer {
     pub fn new(
         poll: &mut mio::Poll,
-        token: mio::Token,
+        min_token: mio::Token,
+        max_token: mio::Token,
         listen_addr: std::net::SocketAddr,
     ) -> std::io::Result<()> {
         todo!()
@@ -14,7 +15,6 @@ impl JsonRpcServer {
     pub fn handle_mio_event(
         &mut self,
         poll: &mut mio::Poll,
-        next_token: &mut mio::Token,
         event: &mio::event::Event,
     ) -> std::io::Result<()> {
         todo!()
