@@ -20,7 +20,7 @@ impl JsonRpcServer {
         todo!()
     }
 
-    pub fn try_recv(&mut self) -> Option<(Option<RpcCaller>, JsonRpcRequest<'_>)> {
+    pub fn try_recv(&mut self) -> Option<JsonRpcRequest<'_>> {
         todo!()
     }
 
@@ -72,6 +72,7 @@ pub struct RpcCaller {
 pub struct JsonRpcRequest<'text> {
     json: nojson::RawJson<'text>,
     method: std::borrow::Cow<'text, str>,
+    caller: Option<RpcCaller>,
 }
 
 impl<'text> JsonRpcRequest<'text> {
@@ -85,6 +86,14 @@ impl<'text> JsonRpcRequest<'text> {
             .to_member("params")
             .expect("infallible")
             .get()
+    }
+
+    pub fn caller(&self) -> Option<&RpcCaller> {
+        self.caller.as_ref()
+    }
+
+    pub fn take_caller(self) -> Option<RpcCaller> {
+        self.caller
     }
 
     pub fn json(&self) -> &nojson::RawJson<'text> {
