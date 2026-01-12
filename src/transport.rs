@@ -33,9 +33,11 @@ pub enum TransportEvent {
         message: nojson::RawJsonOwned,
     },
     Timeout,
-    Interrupted,
+    Woken,
 }
 
+
+#[expect(dead_code)]
 #[derive(Debug)]
 pub struct DirectRpcTransport {
     poll: mio::Poll,
