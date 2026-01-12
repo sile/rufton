@@ -12,7 +12,7 @@ impl JsonRpcServer {
         todo!()
     }
 
-    pub fn handle_mio_event(
+    pub fn handle_event(
         &mut self,
         poll: &mut mio::Poll,
         event: &mio::event::Event,
@@ -20,7 +20,7 @@ impl JsonRpcServer {
         todo!()
     }
 
-    pub fn try_recv(&mut self) -> Option<JsonRpcRequest<'_>> {
+    pub fn try_recv(&mut self, poll: &mut mio::Poll) -> std::io::Result<Option<JsonRpcRequest<'_>>> {
         todo!()
     }
 
