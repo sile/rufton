@@ -68,7 +68,14 @@ impl JsonRpcServer {
 #[derive(Debug)]
 pub struct JsonRpcCaller {
     client: mio::Token,
-    id: Result<i64, String>, // TODO: Either
+    id: JsonRpcRequestId,
+}
+
+#[expect(dead_code)]
+#[derive(Debug)]
+enum JsonRpcRequestId {
+    Integer(i64),
+    String(String),
 }
 
 #[derive(Debug)]
@@ -91,8 +98,8 @@ impl<'text> JsonRpcRequest<'text> {
             .get()
     }
 
-    pub fn caller(&self) -> Option<&JsonRpcCaller> {
-        self.caller.as_ref()
+    pub fn is_notification(&self) -> bool {
+        self.caller.is_none()
     }
 
     pub fn take_caller(self) -> Option<JsonRpcCaller> {
