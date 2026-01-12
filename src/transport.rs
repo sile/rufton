@@ -35,3 +35,19 @@ pub enum TransportEvent {
     Timeout,
     Interrupted,
 }
+
+#[derive(Debug)]
+pub struct DirectRpcTransport {
+    poll: mio::Poll,
+    listener: mio::net::TcpListener,
+}
+
+impl DirectRpcTransport {
+    pub fn new(local_node_addr: std::net::SocketAddr) -> std::io::Result<Self> {
+        let listener = mio::net::TcpListener::bind(local_node_addr)?;
+        Ok(Self {
+            poll: mio::Poll::new()?,
+            listener,
+        })
+    }
+}
