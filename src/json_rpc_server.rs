@@ -3,7 +3,7 @@ pub struct JsonRpcServer {}
 
 #[expect(unused_variables)]
 impl JsonRpcServer {
-    pub fn new(
+    pub fn start(
         poll: &mut mio::Poll,
         min_token: mio::Token,
         max_token: mio::Token,
@@ -20,14 +20,17 @@ impl JsonRpcServer {
         todo!()
     }
 
-    pub fn try_recv(&mut self, poll: &mut mio::Poll) -> std::io::Result<Option<JsonRpcRequest<'_>>> {
+    pub fn try_recv(
+        &mut self,
+        poll: &mut mio::Poll,
+    ) -> std::io::Result<Option<JsonRpcRequest<'_>>> {
         todo!()
     }
 
     pub fn reply_ok<T>(
         &mut self,
         poll: &mut mio::Poll,
-        caller: RpcCaller,
+        caller: JsonRpcCaller,
         result: T,
     ) -> std::io::Result<()>
     where
@@ -39,7 +42,7 @@ impl JsonRpcServer {
     pub fn reply_err(
         &mut self,
         poll: &mut mio::Poll,
-        caller: RpcCaller,
+        caller: JsonRpcCaller,
         code: i32,
         message: &str,
     ) -> std::io::Result<()> {
@@ -49,7 +52,7 @@ impl JsonRpcServer {
     pub fn reply_err_with_data<T>(
         &mut self,
         poll: &mut mio::Poll,
-        caller: RpcCaller,
+        caller: JsonRpcCaller,
         code: i32,
         message: &str,
         data: T,
@@ -63,7 +66,7 @@ impl JsonRpcServer {
 
 #[expect(dead_code)]
 #[derive(Debug)]
-pub struct RpcCaller {
+pub struct JsonRpcCaller {
     client: mio::Token,
     id: Result<i64, String>, // TODO: Either
 }
@@ -72,7 +75,7 @@ pub struct RpcCaller {
 pub struct JsonRpcRequest<'text> {
     json: nojson::RawJson<'text>,
     method: std::borrow::Cow<'text, str>,
-    caller: Option<RpcCaller>,
+    caller: Option<JsonRpcCaller>,
 }
 
 impl<'text> JsonRpcRequest<'text> {
@@ -88,11 +91,11 @@ impl<'text> JsonRpcRequest<'text> {
             .get()
     }
 
-    pub fn caller(&self) -> Option<&RpcCaller> {
+    pub fn caller(&self) -> Option<&JsonRpcCaller> {
         self.caller.as_ref()
     }
 
-    pub fn take_caller(self) -> Option<RpcCaller> {
+    pub fn take_caller(self) -> Option<JsonRpcCaller> {
         self.caller
     }
 
