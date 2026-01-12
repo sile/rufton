@@ -1,3 +1,5 @@
+pub const API_NODE_ID: raftbare::NodeId = raftbare::NodeId::new(u64::MAX);
+
 pub trait JsonLinesRpcTransport {
     fn broadcast<T>(&mut self, message: T) -> std::io::Result<()>
     where
@@ -7,5 +9,8 @@ pub trait JsonLinesRpcTransport {
     where
         T: nojson::DisplayJson;
 
-    fn recv(&mut self) -> std::io::Result<Option<(raftbare::NodeId, nojson::RawJsonOwned)>>;
+    fn recv(
+        &mut self,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<Option<(raftbare::NodeId, nojson::RawJsonOwned)>>;
 }
