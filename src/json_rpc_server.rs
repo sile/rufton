@@ -1,8 +1,8 @@
 #[derive(Debug)]
-pub struct JsonLineRpcServer {}
+pub struct JsonRpcServer {}
 
 #[expect(unused_variables)]
-impl JsonLineRpcServer {
+impl JsonRpcServer {
     pub fn new(
         poll: &mut mio::Poll,
         token: mio::Token,
@@ -33,6 +33,26 @@ impl JsonLineRpcServer {
     where
         T: nojson::DisplayJson,
     {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
+pub struct JsonRpcRequest<'text> {
+    pub json: nojson::RawJson<'text>,
+    pub method: std::borrow::Cow<'text, str>,
+}
+
+impl<'text> JsonRpcRequest<'text> {
+    pub fn method(&self) -> &str {
+        self.method.as_ref()
+    }
+
+    pub fn id(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
+        todo!()
+    }
+
+    pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
         todo!()
     }
 }
