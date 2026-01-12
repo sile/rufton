@@ -20,15 +20,39 @@ impl JsonRpcServer {
         todo!()
     }
 
-    pub fn try_recv(&mut self) -> Option<(std::net::SocketAddr, nojson::RawJson<'_>)> {
+    pub fn try_recv(&mut self) -> Option<(Option<RpcCaller>, JsonRpcRequest<'_>)> {
         todo!()
     }
 
-    pub fn send<T>(
+    pub fn reply_ok<T>(
         &mut self,
         poll: &mut mio::Poll,
-        dst: std::net::SocketAddr,
-        response: T,
+        caller: RpcCaller,
+        result: T,
+    ) -> std::io::Result<()>
+    where
+        T: nojson::DisplayJson,
+    {
+        todo!()
+    }
+
+    pub fn reply_err(
+        &mut self,
+        poll: &mut mio::Poll,
+        caller: RpcCaller,
+        code: i32,
+        message: &str,
+    ) -> std::io::Result<()> {
+        todo!()
+    }
+
+    pub fn reply_err_with_data<T>(
+        &mut self,
+        poll: &mut mio::Poll,
+        caller: RpcCaller,
+        code: i32,
+        message: &str,
+        data: T,
     ) -> std::io::Result<()>
     where
         T: nojson::DisplayJson,
@@ -37,10 +61,16 @@ impl JsonRpcServer {
     }
 }
 
+#[expect(dead_code)]
+#[derive(Debug)]
+pub struct RpcCaller {
+    client: mio::Token,
+}
+
 #[derive(Debug)]
 pub struct JsonRpcRequest<'text> {
-    pub json: nojson::RawJson<'text>,
-    pub method: std::borrow::Cow<'text, str>,
+    json: nojson::RawJson<'text>,
+    method: std::borrow::Cow<'text, str>,
 }
 
 impl<'text> JsonRpcRequest<'text> {
@@ -48,11 +78,15 @@ impl<'text> JsonRpcRequest<'text> {
         self.method.as_ref()
     }
 
-    pub fn id(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
-        todo!()
+    pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
+        self.json
+            .value()
+            .to_member("params")
+            .expect("infallible")
+            .get()
     }
 
-    pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
-        todo!()
+    pub fn json(&self) -> &nojson::RawJson<'text> {
+        &self.json
     }
 }
