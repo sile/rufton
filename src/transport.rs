@@ -1,5 +1,5 @@
 pub trait JsonLinesRpcTransport {
-    type NodeAddr;
+    type NodeAddr: Transferrable;
 
     fn register_node(&mut self, id: raftbare::NodeId, addr: Self::NodeAddr);
     fn deregister_node(&mut self, id: raftbare::NodeId);
@@ -16,4 +16,14 @@ pub trait JsonLinesRpcTransport {
         &mut self,
         timeout: Option<std::time::Duration>,
     ) -> std::io::Result<Option<(raftbare::NodeId, nojson::RawJsonOwned)>>;
+}
+
+pub trait Transferrable:
+    nojson::DisplayJson + for<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>>
+{
+}
+
+impl<T> Transferrable for T where
+    T: nojson::DisplayJson + for<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>>
+{
 }
