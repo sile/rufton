@@ -1,7 +1,8 @@
 #[derive(Debug)]
-pub struct JsonRpcServer {}
+pub struct JsonLineRpcServer {}
 
-impl JsonRpcServer {
+#[expect(unused_variables)]
+impl JsonLineRpcServer {
     pub fn new(
         poll: &mut mio::Poll,
         token: mio::Token,
@@ -13,12 +14,22 @@ impl JsonRpcServer {
     pub fn handle_mio_event(
         &mut self,
         poll: &mut mio::Poll,
+        next_token: &mut mio::Token,
         event: &mio::event::Event,
     ) -> std::io::Result<()> {
         todo!()
     }
 
-    pub fn call<T>(&mut self, dst: std::net::SocketAddr, method: &str, params: Option<T>) -> u64
+    pub fn try_recv(&mut self) -> Option<(std::net::SocketAddr, nojson::RawJson<'_>)> {
+        todo!()
+    }
+
+    pub fn send<T>(
+        &mut self,
+        poll: &mut mio::Poll,
+        dst: std::net::SocketAddr,
+        response: T,
+    ) -> std::io::Result<()>
     where
         T: nojson::DisplayJson,
     {
