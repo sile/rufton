@@ -6,6 +6,7 @@ pub struct JsonRpcServer {
     max_token: mio::Token,
     listener: mio::net::TcpListener,
     clients: std::collections::HashMap<mio::Token, Client>,
+    recv_pendings: std::collections::HashSet<mio::Token>,
 }
 
 #[expect(unused_variables)]
@@ -32,6 +33,7 @@ impl JsonRpcServer {
             max_token,
             listener,
             clients: std::collections::HashMap::new(),
+            recv_pendings: std::collections::HashSet::new(),
         })
     }
 
@@ -67,8 +69,8 @@ impl JsonRpcServer {
                         .reregister(&mut client.stream, event.token(), interest)?;
                 }
 
-                if client.recv_buf_offset > 0 {
-                    //
+                if event.is_readable() && client.recv_buf_offset > 0 {
+                    self.recv_pendings.insert(event.token());
                 }
             } else {
                 poll.registry().deregister(&mut client.stream)?;
