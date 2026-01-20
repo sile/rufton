@@ -2,6 +2,7 @@
 pub struct JsonRpcServer {
     min_token: mio::Token,
     max_token: mio::Token,
+    listener: mio::net::TcpListener,
     clients: std::collections::HashMap<mio::Token, Client>,
 }
 
@@ -13,7 +14,7 @@ impl JsonRpcServer {
         max_token: mio::Token,
         listen_addr: std::net::SocketAddr,
     ) -> std::io::Result<Self> {
-        if max_token.0.saturating_sub(min_token.0) < 2 {
+        if max_token.0.saturating_sub(min_token.0) == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "token range must be at least 2",
@@ -27,6 +28,7 @@ impl JsonRpcServer {
         Ok(Self {
             min_token,
             max_token,
+            listener,
             clients: std::collections::HashMap::new(),
         })
     }
@@ -36,7 +38,31 @@ impl JsonRpcServer {
         poll: &mut mio::Poll,
         event: &mio::event::Event,
     ) -> std::io::Result<()> {
-        todo!()
+        if event.token() == self.min_token {
+            loop {
+                match self.listener.accept() {
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => return Err(e),
+                    Ok((stream, _addr)) => {
+                        let token = self.next_token()?;
+                        let client = Client::new(poll, token, stream)?;
+                        self.clients.insert(token, client);
+                    }
+                }
+            }
+            todo!()
+        } else {
+            todo!()
+        }
+    }
+
+    fn next_token(&mut self) -> std::io::Result<mio::Token> {
+        // NOTE: For simplicity, uses linear search to find a free token
+        (self.min_token.0..=self.max_token.0)
+            .map(mio::Token)
+            .skip(1) // Excludes the listener token
+            .find(|t| !self.clients.contains_key(&t))
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no available tokens"))
     }
 
     pub fn try_recv(
@@ -92,13 +118,19 @@ struct Client {
 }
 
 impl Client {
-    fn new(token: mio::Token, stream: mio::net::TcpStream) -> Self {
-        Self {
+    fn new(
+        poll: &mut mio::Poll,
+        token: mio::Token,
+        mut stream: mio::net::TcpStream,
+    ) -> std::io::Result<Self> {
+        stream.set_nodelay(true)?;
+
+        Ok(Self {
             token,
             stream,
             recv_buf: Vec::new(),
             send_buf: Vec::new(),
-        }
+        })
     }
 }
 
