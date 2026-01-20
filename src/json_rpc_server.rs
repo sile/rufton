@@ -114,13 +114,7 @@ impl JsonRpcServer {
                 self.recv_candidates.remove(&token);
                 continue;
             };
-
             client.request_start = end;
-            if client.request_start == client.recv_buf_offset {
-                client.request_start = 0;
-                client.recv_buf_offset = 0;
-                self.recv_candidates.remove(&token);
-            }
 
             let _ = &client.recv_buf[start..end]; // TODO
             break; // TODO: return some
