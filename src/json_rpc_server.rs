@@ -69,12 +69,13 @@ impl JsonRpcServer {
                         .reregister(&mut client.stream, event.token(), interest)?;
                 }
 
-                if event.is_readable() && client.recv_buf_offset > 0 {
+                if client.newline_position.is_some() {
                     self.recv_pendings.insert(event.token());
                 }
             } else {
                 poll.registry().deregister(&mut client.stream)?;
                 self.clients.remove(&event.token());
+                self.recv_pendings.remove(&event.token());
             }
             Ok(true)
         } else {
@@ -95,7 +96,20 @@ impl JsonRpcServer {
         &mut self,
         poll: &mut mio::Poll,
     ) -> std::io::Result<Option<JsonRpcRequest<'_>>> {
-        todo!()
+        for &token in &self.recv_pendings {
+            let client = self.clients.get_mut(&token).expect("bug");
+            let i = client.newline_position.expect("bug");
+            client.newline_position = client.recv_buf[i..client.recv_buf_offset]
+                .iter()
+                .position(|b| *b == b'\n')
+                .map(|p| i + p);
+            if client.newline_position.is_none() {
+                self.recv_pendings.remove(&token);
+                let _ = &client.recv_buf[..i]; // TODO
+                break; // TODO: return some
+            }
+        }
+        Ok(None)
     }
 
     pub fn reply_ok<T>(
@@ -142,6 +156,7 @@ struct Client {
     recv_buf_offset: usize,
     send_buf: Vec<u8>,
     send_buf_offset: usize,
+    newline_position: Option<usize>,
 }
 
 impl Client {
@@ -152,6 +167,7 @@ impl Client {
             recv_buf_offset: 0,
             send_buf: Vec::new(),
             send_buf_offset: 0,
+            newline_position: None,
         }
     }
 
@@ -166,6 +182,12 @@ impl Client {
                     }
                     Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
                     Ok(n) => {
+                        if self.newline_position.is_none() {
+                            self.newline_position = self.recv_buf[self.recv_buf_offset..][..n]
+                                .iter()
+                                .position(|b| *b == b'\n')
+                                .map(|i| self.recv_buf_offset + i);
+                        }
                         self.recv_buf_offset += n;
                     }
                 }
