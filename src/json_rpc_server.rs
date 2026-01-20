@@ -6,7 +6,7 @@ pub struct JsonRpcServer {
     max_token: mio::Token,
     listener: mio::net::TcpListener,
     clients: std::collections::HashMap<mio::Token, Client>,
-    recv_pendings: std::collections::HashSet<mio::Token>,
+    recv_candidates: std::collections::BTreeSet<mio::Token>,
 }
 
 #[expect(unused_variables)]
@@ -33,7 +33,7 @@ impl JsonRpcServer {
             max_token,
             listener,
             clients: std::collections::HashMap::new(),
-            recv_pendings: std::collections::HashSet::new(),
+            recv_candidates: std::collections::BTreeSet::new(),
         })
     }
 
@@ -69,13 +69,13 @@ impl JsonRpcServer {
                         .reregister(&mut client.stream, event.token(), interest)?;
                 }
 
-                if client.newline_position.is_some() {
-                    self.recv_pendings.insert(event.token());
+                if event.is_readable() && client.recv_buf_offset > 0 {
+                    self.recv_candidates.insert(event.token());
                 }
             } else {
                 poll.registry().deregister(&mut client.stream)?;
                 self.clients.remove(&event.token());
-                self.recv_pendings.remove(&event.token());
+                self.recv_candidates.remove(&event.token());
             }
             Ok(true)
         } else {
@@ -96,18 +96,34 @@ impl JsonRpcServer {
         &mut self,
         poll: &mut mio::Poll,
     ) -> std::io::Result<Option<JsonRpcRequest<'_>>> {
-        for &token in &self.recv_pendings {
+        while let Some(token) = self.recv_candidates.first().copied() {
             let client = self.clients.get_mut(&token).expect("bug");
-            let i = client.newline_position.expect("bug");
-            client.newline_position = client.recv_buf[i..client.recv_buf_offset]
+            let start = client.request_start;
+            let Some(end) = client.recv_buf[start..client.recv_buf_offset]
                 .iter()
                 .position(|b| *b == b'\n')
-                .map(|p| i + p);
-            if client.newline_position.is_none() {
-                self.recv_pendings.remove(&token);
-                let _ = &client.recv_buf[..i]; // TODO
-                break; // TODO: return some
+                .map(|p| start + p)
+            else {
+                if client.request_start > 0 {
+                    client
+                        .recv_buf
+                        .copy_within(client.request_start..client.recv_buf_offset, 0);
+                    client.recv_buf_offset -= client.request_start;
+                    client.request_start = 0;
+                }
+                self.recv_candidates.remove(&token);
+                continue;
+            };
+
+            client.request_start = end;
+            if client.request_start == client.recv_buf_offset {
+                client.request_start = 0;
+                client.recv_buf_offset = 0;
+                self.recv_candidates.remove(&token);
             }
+
+            let _ = &client.recv_buf[start..end]; // TODO
+            break; // TODO: return some
         }
         Ok(None)
     }
@@ -154,9 +170,9 @@ struct Client {
     stream: mio::net::TcpStream,
     recv_buf: Vec<u8>,
     recv_buf_offset: usize,
+    request_start: usize,
     send_buf: Vec<u8>,
     send_buf_offset: usize,
-    newline_position: Option<usize>,
 }
 
 impl Client {
@@ -165,9 +181,9 @@ impl Client {
             stream,
             recv_buf: vec![0; 4096],
             recv_buf_offset: 0,
+            request_start: 0,
             send_buf: Vec::new(),
             send_buf_offset: 0,
-            newline_position: None,
         }
     }
 
@@ -181,15 +197,7 @@ impl Client {
                         self.recv_buf.resize(self.recv_buf_offset * 2, 0);
                     }
                     Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
-                    Ok(n) => {
-                        if self.newline_position.is_none() {
-                            self.newline_position = self.recv_buf[self.recv_buf_offset..][..n]
-                                .iter()
-                                .position(|b| *b == b'\n')
-                                .map(|i| self.recv_buf_offset + i);
-                        }
-                        self.recv_buf_offset += n;
-                    }
+                    Ok(n) => self.recv_buf_offset += n,
                 }
             }
         }
