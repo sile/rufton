@@ -55,20 +55,20 @@ impl JsonRpcServer {
                 }
             }
         } else if let Some(client) = self.clients.get_mut(&event.token()) {
-            let old_send_buf_len = client.send_buf.len();
+            let is_old_send_buf_empty = client.send_buf.is_empty();
             if client.handle_mio_event(event).is_ok() {
-                if old_send_buf_len == 0 && client.send_buf.len() > 0 {
-                    poll.registry().reregister(
-                        &mut client.stream,
-                        event.token(),
-                        mio::Interest::READABLE | mio::Interest::WRITABLE,
-                    )?;
-                } else if old_send_buf_len > 0 && client.send_buf.len() == 0 {
-                    poll.registry().reregister(
-                        &mut client.stream,
-                        event.token(),
-                        mio::Interest::READABLE,
-                    )?;
+                if is_old_send_buf_empty != client.send_buf.is_empty() {
+                    let interest = if client.send_buf.is_empty() {
+                        mio::Interest::READABLE
+                    } else {
+                        mio::Interest::READABLE | mio::Interest::WRITABLE
+                    };
+                    poll.registry()
+                        .reregister(&mut client.stream, event.token(), interest)?;
+                }
+
+                if client.recv_buf_offset > 0 {
+                    //
                 }
             } else {
                 poll.registry().deregister(&mut client.stream)?;
@@ -160,7 +160,6 @@ impl Client {
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                     Err(e) => return Err(e),
                     Ok(0) if self.recv_buf.len() == self.recv_buf_offset => {
-                        // NOTE: Should limit the maximum buffer size (e.g. use ring buffer)
                         self.recv_buf.resize(self.recv_buf_offset * 2, 0);
                     }
                     Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
