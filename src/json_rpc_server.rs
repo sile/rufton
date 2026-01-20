@@ -54,7 +54,7 @@ impl JsonRpcServer {
             }
         } else if let Some(client) = self.clients.get_mut(&event.token()) {
             let old_send_buf_len = client.send_buf.len();
-            if client.handle_event(event)? {
+            if client.handle_event(event).is_ok() {
                 if old_send_buf_len == 0 && client.send_buf.len() > 0 {
                     poll.registry().reregister(
                         &mut client.stream,
@@ -147,7 +147,7 @@ impl Client {
         }
     }
 
-    fn handle_event(&mut self, event: &mio::event::Event) -> std::io::Result<bool> {
+    fn handle_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
         todo!()
     }
 }
