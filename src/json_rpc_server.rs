@@ -43,15 +43,17 @@ impl JsonRpcServer {
                 match self.listener.accept() {
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(true),
                     Err(e) => return Err(e),
-                    Ok((stream, _addr)) => {
+                    Ok((mut stream, _addr)) => {
                         let token = self.next_token()?;
-                        let client = Client::new(poll, token, stream)?;
-                        self.clients.insert(token, client);
+                        stream.set_nodelay(true)?;
+                        poll.registry()
+                            .register(&mut stream, token, mio::Interest::READABLE)?;
+                        self.clients.insert(token, Client::new(stream));
                     }
                 }
             }
         } else if let Some(client) = self.clients.get_mut(&event.token()) {
-            if !client.handle_event(poll, event)? {
+            if !client.handle_event(event)? {
                 poll.registry().deregister(&mut client.stream)?;
                 self.clients.remove(&event.token());
             }
@@ -116,35 +118,21 @@ impl JsonRpcServer {
 
 #[derive(Debug)]
 struct Client {
-    token: mio::Token,
     stream: mio::net::TcpStream,
     recv_buf: Vec<u8>,
     send_buf: Vec<u8>,
 }
 
 impl Client {
-    fn new(
-        poll: &mut mio::Poll,
-        token: mio::Token,
-        mut stream: mio::net::TcpStream,
-    ) -> std::io::Result<Self> {
-        stream.set_nodelay(true)?;
-        poll.registry()
-            .register(&mut stream, token, mio::Interest::READABLE)?;
-
-        Ok(Self {
-            token,
+    fn new(stream: mio::net::TcpStream) -> Self {
+        Self {
             stream,
             recv_buf: Vec::new(),
             send_buf: Vec::new(),
-        })
+        }
     }
 
-    fn handle_event(
-        &mut self,
-        poll: &mut mio::Poll,
-        event: &mio::event::Event,
-    ) -> std::io::Result<bool> {
+    fn handle_event(&mut self, event: &mio::event::Event) -> std::io::Result<bool> {
         todo!()
     }
 }
