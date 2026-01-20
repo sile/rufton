@@ -2,7 +2,7 @@
 pub struct JsonRpcServer {
     min_token: mio::Token,
     max_token: mio::Token,
-    active_tokens: std::collections::HashSet<mio::Token>,
+    clients: std::collections::HashMap<mio::Token, Client>,
 }
 
 #[expect(unused_variables)]
@@ -27,7 +27,7 @@ impl JsonRpcServer {
         Ok(Self {
             min_token,
             max_token,
-            active_tokens: [min_token].into_iter().collect(),
+            clients: std::collections::HashMap::new(),
         })
     }
 
@@ -80,6 +80,25 @@ impl JsonRpcServer {
         T: nojson::DisplayJson,
     {
         todo!()
+    }
+}
+
+#[derive(Debug)]
+struct Client {
+    token: mio::Token,
+    stream: mio::net::TcpStream,
+    recv_buf: Vec<u8>,
+    send_buf: Vec<u8>,
+}
+
+impl Client {
+    fn new(token: mio::Token, stream: mio::net::TcpStream) -> Self {
+        Self {
+            token,
+            stream,
+            recv_buf: Vec::new(),
+            send_buf: Vec::new(),
+        }
     }
 }
 
