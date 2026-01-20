@@ -53,7 +53,22 @@ impl JsonRpcServer {
                 }
             }
         } else if let Some(client) = self.clients.get_mut(&event.token()) {
-            if !client.handle_event(event)? {
+            let old_send_buf_len = client.send_buf.len();
+            if client.handle_event(event)? {
+                if old_send_buf_len == 0 && client.send_buf.len() > 0 {
+                    poll.registry().reregister(
+                        &mut client.stream,
+                        event.token(),
+                        mio::Interest::READABLE | mio::Interest::WRITABLE,
+                    )?;
+                } else if old_send_buf_len > 0 && client.send_buf.len() == 0 {
+                    poll.registry().reregister(
+                        &mut client.stream,
+                        event.token(),
+                        mio::Interest::READABLE,
+                    )?;
+                }
+            } else {
                 poll.registry().deregister(&mut client.stream)?;
                 self.clients.remove(&event.token());
             }
