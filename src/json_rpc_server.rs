@@ -1,5 +1,9 @@
 #[derive(Debug)]
-pub struct JsonRpcServer {}
+pub struct JsonRpcServer {
+    min_token: mio::Token,
+    max_token: mio::Token,
+    active_tokens: std::collections::HashSet<mio::Token>,
+}
 
 #[expect(unused_variables)]
 impl JsonRpcServer {
@@ -8,8 +12,23 @@ impl JsonRpcServer {
         min_token: mio::Token,
         max_token: mio::Token,
         listen_addr: std::net::SocketAddr,
-    ) -> std::io::Result<()> {
-        todo!()
+    ) -> std::io::Result<Self> {
+        if max_token.0.saturating_sub(min_token.0) < 2 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "token range must be at least 2",
+            ));
+        }
+
+        let mut listener = mio::net::TcpListener::bind(listen_addr)?;
+        poll.registry()
+            .register(&mut listener, min_token, mio::Interest::READABLE)?;
+
+        Ok(Self {
+            min_token,
+            max_token,
+            active_tokens: [min_token].into_iter().collect(),
+        })
     }
 
     pub fn handle_event(
