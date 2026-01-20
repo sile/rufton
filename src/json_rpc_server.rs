@@ -1,3 +1,5 @@
+use std::io::Read;
+
 #[derive(Debug)]
 pub struct JsonRpcServer {
     min_token: mio::Token,
@@ -33,7 +35,7 @@ impl JsonRpcServer {
         })
     }
 
-    pub fn handle_event(
+    pub fn handle_mio_event(
         &mut self,
         poll: &mut mio::Poll,
         event: &mio::event::Event,
@@ -54,7 +56,7 @@ impl JsonRpcServer {
             }
         } else if let Some(client) = self.clients.get_mut(&event.token()) {
             let old_send_buf_len = client.send_buf.len();
-            if client.handle_event(event).is_ok() {
+            if client.handle_mio_event(event).is_ok() {
                 if old_send_buf_len == 0 && client.send_buf.len() > 0 {
                     poll.registry().reregister(
                         &mut client.stream,
@@ -135,20 +137,42 @@ impl JsonRpcServer {
 struct Client {
     stream: mio::net::TcpStream,
     recv_buf: Vec<u8>,
+    recv_buf_offset: usize,
     send_buf: Vec<u8>,
+    send_buf_offset: usize,
 }
 
 impl Client {
     fn new(stream: mio::net::TcpStream) -> Self {
         Self {
             stream,
-            recv_buf: Vec::new(),
+            recv_buf: vec![0; 4096],
+            recv_buf_offset: 0,
             send_buf: Vec::new(),
+            send_buf_offset: 0,
         }
     }
 
-    fn handle_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
-        todo!()
+    fn handle_mio_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
+        if event.is_readable() {
+            loop {
+                match self.stream.read(&mut self.recv_buf[self.recv_buf_offset..]) {
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(e) => return Err(e),
+                    Ok(0) if self.recv_buf.len() == self.recv_buf_offset => {
+                        // NOTE: Should limit the maximum buffer size
+                        self.recv_buf.resize(self.recv_buf_offset * 2, 0);
+                    }
+                    Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
+                    Ok(n) => {
+                        self.recv_buf_offset += n;
+                        // todo
+                    }
+                }
+            }
+        }
+        if event.is_writable() {}
+        Ok(())
     }
 }
 
