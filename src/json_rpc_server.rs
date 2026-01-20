@@ -166,7 +166,6 @@ impl Client {
                     Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
                     Ok(n) => {
                         self.recv_buf_offset += n;
-                        // todo
                     }
                 }
             }
@@ -174,7 +173,7 @@ impl Client {
         if event.is_writable() {
             while self.send_buf.len() > self.send_buf_offset {
                 match self.stream.write(&self.send_buf[self.send_buf_offset..]) {
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                     Err(e) => return Err(e),
                     Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
                     Ok(n) => {
@@ -182,8 +181,12 @@ impl Client {
                     }
                 }
             }
-            self.send_buf.clear();
-            self.send_buf_offset = 0;
+            if self.send_buf_offset > self.send_buf.len() / 2 {
+                self.send_buf.copy_within(self.send_buf_offset.., 0);
+                self.send_buf
+                    .truncate(self.send_buf.len() - self.send_buf_offset);
+                self.send_buf_offset = 0;
+            }
         }
         Ok(())
     }
