@@ -37,11 +37,11 @@ impl JsonRpcServer {
         &mut self,
         poll: &mut mio::Poll,
         event: &mio::event::Event,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<bool> {
         if event.token() == self.min_token {
             loop {
                 match self.listener.accept() {
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(true),
                     Err(e) => return Err(e),
                     Ok((stream, _addr)) => {
                         let token = self.next_token()?;
@@ -50,9 +50,14 @@ impl JsonRpcServer {
                     }
                 }
             }
-            todo!()
+        } else if let Some(client) = self.clients.get_mut(&event.token()) {
+            if !client.handle_event(poll, event)? {
+                poll.registry().deregister(&mut client.stream)?;
+                self.clients.remove(&event.token());
+            }
+            Ok(true)
         } else {
-            todo!()
+            Ok(false)
         }
     }
 
@@ -124,6 +129,8 @@ impl Client {
         mut stream: mio::net::TcpStream,
     ) -> std::io::Result<Self> {
         stream.set_nodelay(true)?;
+        poll.registry()
+            .register(&mut stream, token, mio::Interest::READABLE)?;
 
         Ok(Self {
             token,
@@ -131,6 +138,14 @@ impl Client {
             recv_buf: Vec::new(),
             send_buf: Vec::new(),
         })
+    }
+
+    fn handle_event(
+        &mut self,
+        poll: &mut mio::Poll,
+        event: &mio::event::Event,
+    ) -> std::io::Result<bool> {
+        todo!()
     }
 }
 
