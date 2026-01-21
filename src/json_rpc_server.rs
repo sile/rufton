@@ -231,6 +231,43 @@ enum JsonRpcRequestId {
     String(String),
 }
 
+/// JSON-RPC 2.0 predefined error codes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonRpcPredefinedErrorCode {
+    /// Invalid JSON was received by the server
+    ParseError = -32700,
+    /// The JSON sent is not a valid Request object
+    InvalidRequest = -32600,
+    /// The method does not exist / is not available
+    MethodNotFound = -32601,
+    /// Invalid method parameter(s)
+    InvalidParams = -32602,
+    /// Internal JSON-RPC error
+    InternalError = -32603,
+}
+
+impl JsonRpcPredefinedErrorCode {
+    pub fn code(&self) -> i32 {
+        match self {
+            Self::ParseError => -32700,
+            Self::InvalidRequest => -32600,
+            Self::MethodNotFound => -32601,
+            Self::InvalidParams => -32602,
+            Self::InternalError => -32603,
+        }
+    }
+
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::ParseError => "Parse error",
+            Self::InvalidRequest => "Invalid Request",
+            Self::MethodNotFound => "Method not found",
+            Self::InvalidParams => "Invalid params",
+            Self::InternalError => "Internal error",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct JsonRpcRequest<'text> {
     json: nojson::RawJson<'text>,
@@ -239,6 +276,20 @@ pub struct JsonRpcRequest<'text> {
 }
 
 impl<'text> JsonRpcRequest<'text> {
+    pub fn parse_line_bytes(
+        line: &'text [u8],
+    ) -> Result<Self, (JsonRpcPredefinedErrorCode, String)> {
+        let line = std::str::from_utf8(line)
+            .map_err(|e| (JsonRpcPredefinedErrorCode::ParseError, e.to_string()))?;
+        let req = Self::parse_line(line)
+            .map_err(|e| (JsonRpcPredefinedErrorCode::ParseError, e.to_string()))?;
+        Ok(req)
+    }
+
+    fn parse_line(line: &'text str) -> Result<Self, nojson::JsonParseError> {
+        todo!()
+    }
+
     pub fn method(&self) -> &str {
         self.method.as_ref()
     }
