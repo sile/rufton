@@ -302,61 +302,40 @@ impl JsonRpcPredefinedError {
 
 #[derive(Debug)]
 pub struct JsonRpcRequest<'text> {
-    line: &'text [u8],
-    json: Result<nojson::RawJson<'text>, JsonRpcPredefinedError>,
-    method: Option<std::borrow::Cow<'text, str>>,
+    json: nojson::RawJson<'text>,
+    method: std::borrow::Cow<'text, str>,
     params_index: Option<usize>,
-    id_index: Option<usize>,
+    id: Option<JsonRpcRequestId>,
 }
 
 impl<'text> JsonRpcRequest<'text> {
-    pub fn new(line: &'text [u8]) -> Self {
+    pub fn parse(line: &'text [u8]) -> Result<Self, JsonRpcPredefinedError> {
         let json = std::str::from_utf8(line)
             .ok()
             .and_then(|line| nojson::RawJson::parse(line).ok())
-            .ok_or(JsonRpcPredefinedError::ParseError);
-        let mut this = Self {
-            line,
-            json,
-            method: None,
-            params_index: None,
-            id_index: None,
-        };
-        if this.validate_and_init() {
-            this.json = Err(JsonRpcPredefinedError::InvalidRequest);
-        }
-        this
+            .ok_or(JsonRpcPredefinedError::ParseError)?;
+        Self::from_json(json).ok_or(JsonRpcPredefinedError::InvalidRequest)
     }
 
-    pub fn method(&self) -> Option<&str> {
-        self.method.as_ref().map(|s| s.as_ref())
+    pub fn method(&self) -> &str {
+        self.method.as_ref()
     }
 
-    pub fn to_result(&self) -> Result<(), JsonRpcPredefinedError> {
-        let json = self.json.as_ref().map_err(|&e| e)?;
-        todo!()
-    }
-
-    fn validate_and_init(&mut self) -> bool {
-        let Ok(json) = &self.json else { return true };
+    fn from_json(json: nojson::RawJson<'text>) -> Option<Self> {
         let value = json.value();
         let mut has_jsonrpc = false;
 
-        for (key, val) in value.to_object().into_iter().flatten() {
-            let Ok(key) = key.to_unquoted_string_str() else {
-                return false;
-            };
+        for (key, val) in value.to_object().ok()? {
+            let key = key.to_unquoted_string_str().ok()?;
             match key.as_ref() {
                 "jsonrpc" => {
-                    if !val.to_unquoted_string_str().is_ok_and(|s| s == "2.0") {
+                    if val.to_unquoted_string_str().ok()? != "2.0" {
                         return false;
                     }
                     has_jsonrpc = true;
                 }
                 "method" => {
-                    let Ok(m) = val.to_unquoted_string_str() else {
-                        return false;
-                    };
+                    let m = val.to_unquoted_string_str().ok()?;
                     self.method = Some(m);
                 }
                 "id" => {
