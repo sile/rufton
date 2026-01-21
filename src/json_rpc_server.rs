@@ -305,9 +305,6 @@ pub struct JsonRpcRequest<'text> {
     token: mio::Token,
     line: &'text [u8],
     json: Result<nojson::RawJson<'text>, JsonRpcPredefinedErrorCode>,
-    /*
-    method: std::borrow::Cow<'text, str>,
-    caller: Option<JsonRpcCaller>,*/
 }
 
 impl<'text> JsonRpcRequest<'text> {
@@ -321,6 +318,15 @@ impl<'text> JsonRpcRequest<'text> {
                 Self::validate(json).ok_or(JsonRpcPredefinedErrorCode::InvalidRequest)
             });
         Self { token, line, json }
+    }
+
+    pub fn token(&self) -> mio::Token {
+        self.token
+    }
+
+    pub fn to_result(&self) -> Result<(), JsonRpcPredefinedErrorCode> {
+        let json = self.json.as_ref().map_err(|&e| e)?;
+        todo!()
     }
 
     fn validate(json: nojson::RawJson<'text>) -> Option<nojson::RawJson<'text>> {
@@ -365,30 +371,4 @@ impl<'text> JsonRpcRequest<'text> {
 
         (has_jsonrpc && has_method).then_some(json)
     }
-
-    /*
-    pub fn method(&self) -> &str {
-        self.method.as_ref()
-    }
-
-            pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
-            self.json
-                .value()
-                .to_member("params")
-                .expect("infallible")
-                .get()
-        }
-
-        pub fn is_notification(&self) -> bool {
-            self.caller.is_none()
-        }
-
-        pub fn take_caller(self) -> Option<JsonRpcCaller> {
-            self.caller
-        }
-
-        pub fn json(&self) -> &nojson::RawJson<'text> {
-            &self.json
-        }
-    */
 }
