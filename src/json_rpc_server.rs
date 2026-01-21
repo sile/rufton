@@ -6,7 +6,7 @@ pub struct JsonRpcServer {
     max_token: mio::Token,
     listener: mio::net::TcpListener,
     clients: std::collections::HashMap<mio::Token, Client>,
-    recv_candidates: std::collections::BTreeSet<mio::Token>,
+    next_request_candidates: std::collections::BTreeSet<mio::Token>,
 }
 
 #[expect(unused_variables)]
@@ -33,7 +33,7 @@ impl JsonRpcServer {
             max_token,
             listener,
             clients: std::collections::HashMap::new(),
-            recv_candidates: std::collections::BTreeSet::new(),
+            next_request_candidates: std::collections::BTreeSet::new(),
         })
     }
 
@@ -70,12 +70,12 @@ impl JsonRpcServer {
                 }
 
                 if event.is_readable() && client.recv_buf_offset > 0 {
-                    self.recv_candidates.insert(event.token());
+                    self.next_request_candidates.insert(event.token());
                 }
             } else {
                 poll.registry().deregister(&mut client.stream)?;
                 self.clients.remove(&event.token());
-                self.recv_candidates.remove(&event.token());
+                self.next_request_candidates.remove(&event.token());
             }
             Ok(true)
         } else {
@@ -92,11 +92,9 @@ impl JsonRpcServer {
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no available tokens"))
     }
 
-    pub fn try_recv(
-        &mut self,
-        poll: &mut mio::Poll,
-    ) -> std::io::Result<Option<JsonRpcRequest<'_>>> {
-        while let Some(token) = self.recv_candidates.first().copied() {
+    pub fn next_request(&mut self) -> Option<JsonRpcRequest<'_>> {
+        loop {
+            let token = self.next_request_candidates.first().copied()?;
             let client = self.clients.get_mut(&token).expect("bug");
             let start = client.request_start;
             let Some(end) = client.recv_buf[start..client.recv_buf_offset]
@@ -111,23 +109,15 @@ impl JsonRpcServer {
                     client.recv_buf_offset -= client.request_start;
                     client.request_start = 0;
                 }
-                self.recv_candidates.remove(&token);
+                self.next_request_candidates.remove(&token);
                 continue;
             };
             client.request_start = end;
 
             let client = self.clients.get(&token).expect("bug");
             let line = &client.recv_buf[start..end];
-            match JsonRpcRequest::parse_line_bytes(line, token) {
-                Ok(request) => return Ok(Some(request)),
-                Err((error, data)) => {
-                    let client = self.clients.get_mut(&token).expect("bug");
-                    client.reply_null_id_err(poll, token, error, data)?;
-                    break;
-                }
-            }
+            return Some(JsonRpcRequest::new(token, line));
         }
-        Ok(None)
     }
 
     pub fn reply_ok<T>(
@@ -318,6 +308,10 @@ pub struct JsonRpcRequest<'text> {
 }
 
 impl<'text> JsonRpcRequest<'text> {
+    pub fn new(token: mio::Token, line: &'text [u8]) -> Self {
+        todo!()
+    }
+
     pub fn parse_line_bytes(
         line: &'text [u8],
         token: mio::Token,
