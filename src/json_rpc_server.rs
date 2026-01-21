@@ -324,42 +324,52 @@ impl<'text> JsonRpcRequest<'text> {
     fn from_json(json: nojson::RawJson<'text>) -> Option<Self> {
         let value = json.value();
         let mut has_jsonrpc = false;
+        let mut method = None;
+        let mut id = None;
+        let mut params_index = None;
 
         for (key, val) in value.to_object().ok()? {
             let key = key.to_unquoted_string_str().ok()?;
             match key.as_ref() {
                 "jsonrpc" => {
                     if val.to_unquoted_string_str().ok()? != "2.0" {
-                        return false;
+                        return None;
                     }
                     has_jsonrpc = true;
                 }
                 "method" => {
                     let m = val.to_unquoted_string_str().ok()?;
-                    self.method = Some(m);
+                    method = Some(m);
                 }
                 "id" => {
-                    if !matches!(
-                        val.kind(),
-                        nojson::JsonValueKind::Integer | nojson::JsonValueKind::String
-                    ) {
-                        return false;
-                    }
-                    self.id_index = Some(val.index());
+                    match val.kind() {
+                        nojson::JsonValueKind::Integer => {
+                            id = Some(JsonRpcRequestId::Integer(val.try_into().ok()?))
+                        }
+                        nojson::JsonValueKind::String => {
+                            id = Some(JsonRpcRequestId::String(val.try_into().ok()?))
+                        }
+                        _ => return None,
+                    };
                 }
                 "params" => {
                     if !matches!(
                         val.kind(),
                         nojson::JsonValueKind::Object | nojson::JsonValueKind::Array
                     ) {
-                        return false;
+                        return None;
                     }
-                    self.params_index = Some(val.index());
+                    params_index = Some(val.index());
                 }
                 _ => {}
             }
         }
 
-        has_jsonrpc && self.method.is_some()
+        has_jsonrpc.then_some(Self {
+            json,
+            method: method?,
+            params_index,
+            id,
+        })
     }
 }
