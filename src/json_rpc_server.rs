@@ -334,6 +334,10 @@ impl<'text> JsonRpcRequest<'text> {
         self.token
     }
 
+    pub fn method(&self) -> Option<&str> {
+        self.method.as_ref().map(|s| s.as_ref())
+    }
+
     pub fn to_result(&self) -> Result<(), JsonRpcPredefinedError> {
         let json = self.json.as_ref().map_err(|&e| e)?;
         todo!()
