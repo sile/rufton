@@ -183,7 +183,7 @@ impl Client {
         &mut self,
         poll: &mut mio::Poll,
         token: mio::Token,
-        error_code: JsonRpcPredefinedErrorCode,
+        error_code: JsonRpcPredefinedError,
         error_data: String,
     ) -> std::io::Result<()> {
         let response = nojson::object(|f| {
@@ -265,7 +265,7 @@ enum JsonRpcRequestId {
 
 /// JSON-RPC 2.0 predefined error codes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JsonRpcPredefinedErrorCode {
+pub enum JsonRpcPredefinedError {
     /// Invalid JSON was received by the server
     ParseError = -32700,
     /// The JSON sent is not a valid Request object
@@ -278,7 +278,7 @@ pub enum JsonRpcPredefinedErrorCode {
     InternalError = -32603,
 }
 
-impl JsonRpcPredefinedErrorCode {
+impl JsonRpcPredefinedError {
     pub fn code(&self) -> i32 {
         match self {
             Self::ParseError => -32700,
@@ -304,7 +304,7 @@ impl JsonRpcPredefinedErrorCode {
 pub struct JsonRpcRequest<'text> {
     token: mio::Token,
     line: &'text [u8],
-    json: Result<nojson::RawJson<'text>, JsonRpcPredefinedErrorCode>,
+    json: Result<nojson::RawJson<'text>, JsonRpcPredefinedError>,
     method: Option<std::borrow::Cow<'text, str>>,
     params_index: Option<usize>,
     id_index: Option<usize>,
@@ -315,7 +315,7 @@ impl<'text> JsonRpcRequest<'text> {
         let json = std::str::from_utf8(line)
             .ok()
             .and_then(|line| nojson::RawJson::parse(line).ok())
-            .ok_or(JsonRpcPredefinedErrorCode::ParseError);
+            .ok_or(JsonRpcPredefinedError::ParseError);
         let mut this = Self {
             token,
             line,
@@ -325,7 +325,7 @@ impl<'text> JsonRpcRequest<'text> {
             id_index: None,
         };
         if this.validate_and_init() {
-            this.json = Err(JsonRpcPredefinedErrorCode::InvalidRequest);
+            this.json = Err(JsonRpcPredefinedError::InvalidRequest);
         }
         this
     }
@@ -334,7 +334,7 @@ impl<'text> JsonRpcRequest<'text> {
         self.token
     }
 
-    pub fn to_result(&self) -> Result<(), JsonRpcPredefinedErrorCode> {
+    pub fn to_result(&self) -> Result<(), JsonRpcPredefinedError> {
         let json = self.json.as_ref().map_err(|&e| e)?;
         todo!()
     }
@@ -356,9 +356,6 @@ impl<'text> JsonRpcRequest<'text> {
                     has_jsonrpc = true;
                 }
                 "method" => {
-                    if val.kind() != nojson::JsonValueKind::String {
-                        return false;
-                    }
                     let Ok(m) = val.to_unquoted_string_str() else {
                         return false;
                     };
