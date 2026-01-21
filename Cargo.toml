@@ -8,3 +8,6 @@ mio = { version = "1.1.1", default-features=false, features = ["os-poll", "net"]
 nojson = "0.3.6"
 raftbare = "0.2.2"
 rand = "0.9.2"
+
+[patch.crates-io]
+nojson = { path = "../nojson" }

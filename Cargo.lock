@@ -40,8 +40,6 @@ dependencies = [
 [[package]]
 name = "nojson"
 version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20f9facf70a088279ffcf06cb5f897660ebd32621629b51872f4d4b25c77e494"
 
 [[package]]
 name = "ppv-lite86"
