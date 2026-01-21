@@ -120,11 +120,12 @@ impl JsonRpcServer {
             let line = &client.recv_buf[start..end];
             match JsonRpcRequest::parse_line_bytes(line, token) {
                 Ok(request) => return Ok(Some(request)),
-                Err(_error) => {
-                    // TODO: handle error and send error response
+                Err((error, data)) => {
+                    let client = self.clients.get_mut(&token).expect("bug");
+                    client.reply_null_id_err(poll, token, error, data)?;
+                    break;
                 }
             }
-            break;
         }
         Ok(None)
     }
@@ -186,6 +187,40 @@ impl Client {
             send_buf: Vec::new(),
             send_buf_offset: 0,
         }
+    }
+
+    fn reply_null_id_err(
+        &mut self,
+        poll: &mut mio::Poll,
+        token: mio::Token,
+        error_code: JsonRpcPredefinedErrorCode,
+        error_data: String,
+    ) -> std::io::Result<()> {
+        let response = nojson::object(|f| {
+            f.member("jsonrpc", "2.0")?;
+            f.member(
+                "error",
+                nojson::object(|f| {
+                    f.member("code", error_code.code())?;
+                    f.member("message", error_code.message())?;
+                    f.member("data", &error_data)
+                }),
+            )?;
+            f.member("id", ())
+        });
+
+        writeln!(self.send_buf, "{response}")?;
+
+        // Update poll registration
+        let interest = if self.send_buf.len() > self.send_buf_offset {
+            mio::Interest::READABLE | mio::Interest::WRITABLE
+        } else {
+            mio::Interest::READABLE
+        };
+
+        poll.registry()
+            .reregister(&mut self.stream, token, interest)?;
+        Ok(())
     }
 
     fn handle_mio_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
