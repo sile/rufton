@@ -281,12 +281,12 @@ impl<'text> JsonRpcRequest<'text> {
     ) -> Result<Self, (JsonRpcPredefinedErrorCode, String)> {
         let line = std::str::from_utf8(line)
             .map_err(|e| (JsonRpcPredefinedErrorCode::ParseError, e.to_string()))?;
-        let req = Self::parse_line(line)
+        let json = nojson::RawJson::parse(line)
             .map_err(|e| (JsonRpcPredefinedErrorCode::ParseError, e.to_string()))?;
-        Ok(req)
+        Self::parse(json).map_err(|e| (JsonRpcPredefinedErrorCode::InvalidRequest, e.to_string()))
     }
 
-    fn parse_line(line: &'text str) -> Result<Self, nojson::JsonParseError> {
+    fn parse(json: nojson::RawJson<'text>) -> Result<Self, nojson::JsonParseError> {
         todo!()
     }
 
