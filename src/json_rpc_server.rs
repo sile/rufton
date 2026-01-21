@@ -123,7 +123,8 @@ impl JsonRpcServer {
     pub fn reply_ok<T>(
         &mut self,
         poll: &mut mio::Poll,
-        caller: JsonRpcCaller,
+        token: mio::Token,
+        id: &JsonRpcRequestId,
         result: T,
     ) -> std::io::Result<()>
     where
@@ -135,7 +136,8 @@ impl JsonRpcServer {
     pub fn reply_err(
         &mut self,
         poll: &mut mio::Poll,
-        caller: JsonRpcCaller,
+        token: mio::Token,
+        id: Option<&JsonRpcRequestId>,
         code: i32,
         message: &str,
     ) -> std::io::Result<()> {
@@ -145,7 +147,8 @@ impl JsonRpcServer {
     pub fn reply_err_with_data<T>(
         &mut self,
         poll: &mut mio::Poll,
-        caller: JsonRpcCaller,
+        token: mio::Token,
+        id: Option<&JsonRpcRequestId>,
         code: i32,
         message: &str,
         data: T,
@@ -249,13 +252,6 @@ impl Client {
     }
 }
 
-#[expect(dead_code)]
-#[derive(Debug)]
-pub struct JsonRpcCaller {
-    client: mio::Token,
-    id: JsonRpcRequestId,
-}
-
 #[derive(Debug)]
 pub enum JsonRpcRequestId {
     Integer(i64),
@@ -325,7 +321,8 @@ impl<'text> JsonRpcRequest<'text> {
     }
 
     pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
-        self.params_index.and_then(|i| self.json.get_value_by_index(i))
+        self.params_index
+            .and_then(|i| self.json.get_value_by_index(i))
     }
 
     pub fn json(&self) -> &nojson::RawJson<'text> {
