@@ -331,24 +331,19 @@ impl<'text> JsonRpcRequest<'text> {
 
         for (key, val) in value.to_object().ok()? {
             match key.to_unquoted_string_str().ok()?.as_ref() {
-                "jsonrpc" => {
-                    if val.to_unquoted_string_str().ok()? != "2.0" {
-                        return None;
-                    }
+                "jsonrpc" if val.to_unquoted_string_str().ok()? == "2.0" => {
                     has_jsonrpc = true;
                 }
-                "method" => {
-                    if val.kind() != nojson::JsonValueKind::String {
-                        return None;
-                    }
+                "method" if val.kind() == nojson::JsonValueKind::String => {
                     has_method = true;
                 }
                 "id" => {
-                    match val.kind() {
-                        nojson::JsonValueKind::Integer => {}
-                        nojson::JsonValueKind::String => {}
-                        _ => return None,
-                    };
+                    if !matches!(
+                        val.kind(),
+                        nojson::JsonValueKind::Integer | nojson::JsonValueKind::String
+                    ) {
+                        return None;
+                    }
                 }
                 "params" => {
                     if !matches!(
