@@ -301,16 +301,10 @@ impl<'text> JsonRpcRequest<'text> {
     ) -> Result<Self, nojson::JsonParseError> {
         let value = json.value();
 
-        // Validate it's an object
-        if value.kind() != nojson::JsonValueKind::Object {
-            return Err(value.invalid("request must be a JSON object"));
-        }
-
         let mut has_jsonrpc = false;
         let mut method = None;
         let mut id = None;
 
-        // Iterate through object members
         for (key, val) in value.to_object()? {
             let key_str = key.to_unquoted_string_str()?;
 
@@ -322,9 +316,6 @@ impl<'text> JsonRpcRequest<'text> {
                     has_jsonrpc = true;
                 }
                 "method" => {
-                    if val.kind() != nojson::JsonValueKind::String {
-                        return Err(val.invalid("method must be a string"));
-                    }
                     method = Some(val.to_unquoted_string_str()?);
                 }
                 "id" => {
@@ -348,9 +339,7 @@ impl<'text> JsonRpcRequest<'text> {
                         return Err(val.invalid("params must be an object or array"));
                     }
                 }
-                _ => {
-                    // Ignore unknown members
-                }
+                _ => {}
             }
         }
 
@@ -359,12 +348,10 @@ impl<'text> JsonRpcRequest<'text> {
         }
 
         let method = method.ok_or_else(|| value.invalid("method field is required"))?;
-
         let caller = id.map(|id_val| JsonRpcCaller {
             client: token,
             id: id_val,
         });
-
         Ok(Self {
             json,
             method,
