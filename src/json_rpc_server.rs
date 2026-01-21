@@ -363,11 +363,7 @@ impl<'text> JsonRpcRequest<'text> {
             }
         }
 
-        if !has_jsonrpc || has_method {
-            return None;
-        }
-
-        Some(json)
+        (has_jsonrpc && has_method).then_some(json)
     }
 
     /*
