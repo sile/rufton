@@ -304,98 +304,77 @@ impl JsonRpcPredefinedErrorCode {
 pub struct JsonRpcRequest<'text> {
     token: mio::Token,
     line: &'text [u8],
-    /*json: nojson::RawJson<'text>,
+    json: Result<nojson::RawJson<'text>, JsonRpcPredefinedErrorCode>,
+    /*
     method: std::borrow::Cow<'text, str>,
     caller: Option<JsonRpcCaller>,*/
 }
 
 impl<'text> JsonRpcRequest<'text> {
     pub fn new(token: mio::Token, line: &'text [u8]) -> Self {
-        Self { token, line }
+        let json = std::str::from_utf8(line)
+            .map_err(|_| JsonRpcPredefinedErrorCode::ParseError)
+            .and_then(|line| {
+                nojson::RawJson::parse(line).map_err(|_| JsonRpcPredefinedErrorCode::ParseError)
+            })
+            .and_then(|json| {
+                Self::validate(json).ok_or(JsonRpcPredefinedErrorCode::InvalidRequest)
+            });
+        Self { token, line, json }
+    }
+
+    fn validate(json: nojson::RawJson<'text>) -> Option<nojson::RawJson<'text>> {
+        let value = json.value();
+
+        let mut has_jsonrpc = false;
+        let mut has_method = false;
+
+        for (key, val) in value.to_object().ok()? {
+            match key.to_unquoted_string_str().ok()?.as_ref() {
+                "jsonrpc" => {
+                    if val.to_unquoted_string_str().ok()? != "2.0" {
+                        return None;
+                    }
+                    has_jsonrpc = true;
+                }
+                "method" => {
+                    if val.kind() != nojson::JsonValueKind::String {
+                        return None;
+                    }
+                    has_method = true;
+                }
+                "id" => {
+                    match val.kind() {
+                        nojson::JsonValueKind::Integer => {}
+                        nojson::JsonValueKind::String => {}
+                        _ => return None,
+                    };
+                }
+                "params" => {
+                    if !matches!(
+                        val.kind(),
+                        nojson::JsonValueKind::Object | nojson::JsonValueKind::Array
+                    ) {
+                        return None;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !has_jsonrpc || has_method {
+            return None;
+        }
+
+        Some(json)
     }
 
     /*
-        pub fn parse_line_bytes(
-            line: &'text [u8],
-            token: mio::Token,
-        ) -> Result<Self, (JsonRpcPredefinedErrorCode, String)> {
-            let line = std::str::from_utf8(line)
-                .map_err(|e| (JsonRpcPredefinedErrorCode::ParseError, e.to_string()))?;
-            let json = nojson::RawJson::parse(line)
-                .map_err(|e| (JsonRpcPredefinedErrorCode::ParseError, e.to_string()))?;
-            Self::parse(json, token)
-                .map_err(|e| (JsonRpcPredefinedErrorCode::InvalidRequest, e.to_string()))
-        }
+    pub fn method(&self) -> &str {
+        self.method.as_ref()
+    }
 
-        fn parse(
-            json: nojson::RawJson<'text>,
-            token: mio::Token,
-        ) -> Result<Self, nojson::JsonParseError> {
-            let value = json.value();
-
-            let mut has_jsonrpc = false;
-            let mut method = None;
-            let mut id = None;
-
-            for (key, val) in value.to_object()? {
-                let key_str = key.to_unquoted_string_str()?;
-
-                match key_str.as_ref() {
-                    "jsonrpc" => {
-                        if val.to_unquoted_string_str()? != "2.0" {
-                            return Err(val.invalid("jsonrpc version must be '2.0'"));
-                        }
-                        has_jsonrpc = true;
-                    }
-                    "method" => {
-                        method = Some(val.to_unquoted_string_str()?);
-                    }
-                    "id" => {
-                        id = match val.kind() {
-                            nojson::JsonValueKind::Integer => {
-                                Some(JsonRpcRequestId::Integer(val.try_into()?))
-                            }
-                            nojson::JsonValueKind::String => {
-                                Some(JsonRpcRequestId::String(val.try_into()?))
-                            }
-                            _ => {
-                                return Err(val.invalid("id must be an integer or string"));
-                            }
-                        };
-                    }
-                    "params" => {
-                        if !matches!(
-                            val.kind(),
-                            nojson::JsonValueKind::Object | nojson::JsonValueKind::Array
-                        ) {
-                            return Err(val.invalid("params must be an object or array"));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            if !has_jsonrpc {
-                return Err(value.invalid("jsonrpc field is required"));
-            }
-
-            let method = method.ok_or_else(|| value.invalid("method field is required"))?;
-            let caller = id.map(|id_val| JsonRpcCaller {
-                client: token,
-                id: id_val,
-            });
-            Ok(Self {
-                json,
-                method,
-                caller,
-            })
-        }
-
-        pub fn method(&self) -> &str {
-            self.method.as_ref()
-        }
-
-        pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
+            pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
             self.json
                 .value()
                 .to_member("params")
