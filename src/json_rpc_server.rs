@@ -179,7 +179,7 @@ impl Client {
         }
     }
 
-    fn reply_null_id_err(
+    /*TODO: fn reply_null_id_err(
         &mut self,
         poll: &mut mio::Poll,
         token: mio::Token,
@@ -211,7 +211,7 @@ impl Client {
         poll.registry()
             .reregister(&mut self.stream, token, interest)?;
         Ok(())
-    }
+    }*/
 
     fn handle_mio_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
         if event.is_readable() {
@@ -256,9 +256,8 @@ pub struct JsonRpcCaller {
     id: JsonRpcRequestId,
 }
 
-#[expect(dead_code)]
 #[derive(Debug)]
-enum JsonRpcRequestId {
+pub enum JsonRpcRequestId {
     Integer(i64),
     String(String),
 }
@@ -319,6 +318,18 @@ impl<'text> JsonRpcRequest<'text> {
 
     pub fn method(&self) -> &str {
         self.method.as_ref()
+    }
+
+    pub fn id(&self) -> Option<&JsonRpcRequestId> {
+        self.id.as_ref()
+    }
+
+    pub fn params(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
+        self.params_index.and_then(|i| self.json.get_value_by_index(i))
+    }
+
+    pub fn json(&self) -> &nojson::RawJson<'text> {
+        &self.json
     }
 
     fn from_json(json: nojson::RawJson<'text>) -> Option<Self> {
