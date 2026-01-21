@@ -338,8 +338,7 @@ impl<'text> JsonRpcRequest<'text> {
                     has_jsonrpc = true;
                 }
                 "method" => {
-                    let m = val.to_unquoted_string_str().ok()?;
-                    method = Some(m);
+                    method = Some(val.to_unquoted_string_str().ok()?);
                 }
                 "id" => {
                     if let Ok(v) = val.try_into() {
