@@ -92,7 +92,7 @@ impl JsonRpcServer {
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no available tokens"))
     }
 
-    pub fn next_request(&mut self) -> Option<JsonRpcRequest<'_>> {
+    pub fn next_request_line(&mut self) -> Option<(mio::Token, &[u8])> {
         loop {
             let token = self.next_request_candidates.first().copied()?;
             let client = self.clients.get_mut(&token).expect("bug");
@@ -116,7 +116,7 @@ impl JsonRpcServer {
 
             let client = self.clients.get(&token).expect("bug");
             let line = &client.recv_buf[start..end];
-            return Some(JsonRpcRequest::new(token, line));
+            return Some((token, line));
         }
     }
 
@@ -302,7 +302,6 @@ impl JsonRpcPredefinedError {
 
 #[derive(Debug)]
 pub struct JsonRpcRequest<'text> {
-    token: mio::Token,
     line: &'text [u8],
     json: Result<nojson::RawJson<'text>, JsonRpcPredefinedError>,
     method: Option<std::borrow::Cow<'text, str>>,
@@ -311,13 +310,12 @@ pub struct JsonRpcRequest<'text> {
 }
 
 impl<'text> JsonRpcRequest<'text> {
-    pub fn new(token: mio::Token, line: &'text [u8]) -> Self {
+    pub fn new(line: &'text [u8]) -> Self {
         let json = std::str::from_utf8(line)
             .ok()
             .and_then(|line| nojson::RawJson::parse(line).ok())
             .ok_or(JsonRpcPredefinedError::ParseError);
         let mut this = Self {
-            token,
             line,
             json,
             method: None,
@@ -328,10 +326,6 @@ impl<'text> JsonRpcRequest<'text> {
             this.json = Err(JsonRpcPredefinedError::InvalidRequest);
         }
         this
-    }
-
-    pub fn token(&self) -> mio::Token {
-        self.token
     }
 
     pub fn method(&self) -> Option<&str> {
