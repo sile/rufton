@@ -331,10 +331,16 @@ impl<'text> JsonRpcRequest<'text> {
 
         for (key, val) in value.to_object().ok()? {
             match key.to_unquoted_string_str().ok()?.as_ref() {
-                "jsonrpc" if val.to_unquoted_string_str().ok()? == "2.0" => {
+                "jsonrpc" => {
+                    if val.to_unquoted_string_str().ok()? != "2.0" {
+                        return None;
+                    }
                     has_jsonrpc = true;
                 }
-                "method" if val.kind() == nojson::JsonValueKind::String => {
+                "method" => {
+                    if val.kind() != nojson::JsonValueKind::String {
+                        return None;
+                    }
                     has_method = true;
                 }
                 "id" => {
