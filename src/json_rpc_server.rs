@@ -305,19 +305,29 @@ pub struct JsonRpcRequest<'text> {
     token: mio::Token,
     line: &'text [u8],
     json: Result<nojson::RawJson<'text>, JsonRpcPredefinedErrorCode>,
+    method: Option<std::borrow::Cow<'text, str>>,
+    params_index: Option<usize>,
+    id_index: Option<usize>,
 }
 
 impl<'text> JsonRpcRequest<'text> {
     pub fn new(token: mio::Token, line: &'text [u8]) -> Self {
         let json = std::str::from_utf8(line)
-            .map_err(|_| JsonRpcPredefinedErrorCode::ParseError)
-            .and_then(|line| {
-                nojson::RawJson::parse(line).map_err(|_| JsonRpcPredefinedErrorCode::ParseError)
-            })
-            .and_then(|json| {
-                Self::validate(json).ok_or(JsonRpcPredefinedErrorCode::InvalidRequest)
-            });
-        Self { token, line, json }
+            .ok()
+            .and_then(|line| nojson::RawJson::parse(line).ok())
+            .ok_or(JsonRpcPredefinedErrorCode::ParseError);
+        let mut this = Self {
+            token,
+            line,
+            json,
+            method: None,
+            params_index: None,
+            id_index: None,
+        };
+        if this.validate_and_init() {
+            this.json = Err(JsonRpcPredefinedErrorCode::InvalidRequest);
+        }
+        this
     }
 
     pub fn token(&self) -> mio::Token {
@@ -329,46 +339,53 @@ impl<'text> JsonRpcRequest<'text> {
         todo!()
     }
 
-    fn validate(json: nojson::RawJson<'text>) -> Option<nojson::RawJson<'text>> {
+    fn validate_and_init(&mut self) -> bool {
+        let Ok(json) = &self.json else { return true };
         let value = json.value();
-
         let mut has_jsonrpc = false;
-        let mut has_method = false;
 
-        for (key, val) in value.to_object().ok()? {
-            match key.to_unquoted_string_str().ok()?.as_ref() {
+        for (key, val) in value.to_object().into_iter().flatten() {
+            let Ok(key) = key.to_unquoted_string_str() else {
+                return false;
+            };
+            match key.as_ref() {
                 "jsonrpc" => {
-                    if val.to_unquoted_string_str().ok()? != "2.0" {
-                        return None;
+                    if !val.to_unquoted_string_str().is_ok_and(|s| s == "2.0") {
+                        return false;
                     }
                     has_jsonrpc = true;
                 }
                 "method" => {
                     if val.kind() != nojson::JsonValueKind::String {
-                        return None;
+                        return false;
                     }
-                    has_method = true;
+                    let Ok(m) = val.to_unquoted_string_str() else {
+                        return false;
+                    };
+                    self.method = Some(m);
                 }
                 "id" => {
                     if !matches!(
                         val.kind(),
                         nojson::JsonValueKind::Integer | nojson::JsonValueKind::String
                     ) {
-                        return None;
+                        return false;
                     }
+                    self.id_index = Some(val.index());
                 }
                 "params" => {
                     if !matches!(
                         val.kind(),
                         nojson::JsonValueKind::Object | nojson::JsonValueKind::Array
                     ) {
-                        return None;
+                        return false;
                     }
+                    self.params_index = Some(val.index());
                 }
                 _ => {}
             }
         }
 
-        (has_jsonrpc && has_method).then_some(json)
+        has_jsonrpc && self.method.is_some()
     }
 }
