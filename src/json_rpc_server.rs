@@ -342,15 +342,11 @@ impl<'text> JsonRpcRequest<'text> {
                     method = Some(m);
                 }
                 "id" => {
-                    match val.kind() {
-                        nojson::JsonValueKind::Integer => {
-                            id = Some(JsonRpcRequestId::Integer(val.try_into().ok()?))
-                        }
-                        nojson::JsonValueKind::String => {
-                            id = Some(JsonRpcRequestId::String(val.try_into().ok()?))
-                        }
-                        _ => return None,
-                    };
+                    if let Ok(v) = val.try_into() {
+                        id = Some(JsonRpcRequestId::Integer(v));
+                    } else {
+                        id = Some(JsonRpcRequestId::String(val.try_into().ok()?));
+                    }
                 }
                 "params" => {
                     if !matches!(
