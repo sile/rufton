@@ -9,7 +9,6 @@ pub struct JsonRpcServer {
     next_request_candidates: std::collections::BTreeSet<mio::Token>,
 }
 
-#[expect(unused_variables)]
 impl JsonRpcServer {
     pub fn start(
         poll: &mut mio::Poll,
@@ -219,7 +218,6 @@ impl JsonRpcServer {
     pub fn reply_err_with_data<T>(
         &mut self,
         poll: &mut mio::Poll,
-        token: mio::Token,
         client_id: ClientId,
         request_id: Option<&JsonRpcRequestId>,
         code: i32,
@@ -469,17 +467,197 @@ impl<'text> JsonRpcRequest<'text> {
     }
 }
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
-
 #[derive(Debug)]
 pub struct JsonRpcClient {
     min_token: mio::Token,
     max_token: mio::Token,
-    connections: HashMap<SocketAddr, ClientConnection>,
-    token_to_addr: HashMap<mio::Token, SocketAddr>,
+    connections: std::collections::HashMap<std::net::SocketAddr, ClientConnection>,
+    token_to_addr: std::collections::HashMap<mio::Token, std::net::SocketAddr>,
     next_token_offset: usize,
     next_request_candidates: std::collections::BTreeSet<mio::Token>,
+}
+
+impl JsonRpcClient {
+    pub fn start(
+        _poll: &mut mio::Poll,
+        min_token: mio::Token,
+        max_token: mio::Token,
+    ) -> std::io::Result<Self> {
+        if max_token.0.saturating_sub(min_token.0) == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "token range must be at least 1",
+            ));
+        }
+
+        Ok(Self {
+            min_token,
+            max_token,
+            connections: std::collections::HashMap::new(),
+            token_to_addr: std::collections::HashMap::new(),
+            next_token_offset: 0,
+            next_request_candidates: std::collections::BTreeSet::new(),
+        })
+    }
+
+    pub fn handle_mio_event(
+        &mut self,
+        poll: &mut mio::Poll,
+        event: &mio::event::Event,
+    ) -> std::io::Result<bool> {
+        let addr = match self.token_to_addr.get(&event.token()).copied() {
+            Some(addr) => addr,
+            None => return Ok(false),
+        };
+
+        let conn = match self.connections.get_mut(&addr) {
+            Some(conn) => conn,
+            None => return Ok(false),
+        };
+
+        let is_old_send_buf_empty = conn.send_buf.is_empty();
+        if conn.handle_mio_event(event).is_ok() {
+            if is_old_send_buf_empty != conn.send_buf.is_empty() {
+                let interest = if conn.send_buf.is_empty() {
+                    mio::Interest::READABLE
+                } else {
+                    mio::Interest::READABLE | mio::Interest::WRITABLE
+                };
+                poll.registry()
+                    .reregister(&mut conn.stream, event.token(), interest)?;
+            }
+
+            if event.is_readable() && conn.recv_buf_offset > 0 {
+                self.next_request_candidates.insert(event.token());
+            }
+        } else {
+            // Connection error, remove it
+            if let Some(mut conn) = self.connections.remove(&addr) {
+                poll.registry().deregister(&mut conn.stream)?;
+            }
+            self.token_to_addr.remove(&event.token());
+            self.next_request_candidates.remove(&event.token());
+        }
+        Ok(true)
+    }
+
+    pub fn send_request<T>(
+        &mut self,
+        poll: &mut mio::Poll,
+        dst: std::net::SocketAddr,
+        id: Option<&JsonRpcRequestId>,
+        method: &str,
+        params: T,
+    ) -> std::io::Result<()>
+    where
+        T: nojson::DisplayJson,
+    {
+        // Ensure connection exists
+        if !self.connections.contains_key(&dst) {
+            let mut stream = mio::net::TcpStream::connect(dst)?;
+            let token = self.next_token()?;
+            stream.set_nodelay(true)?;
+            poll.registry()
+                .register(&mut stream, token, mio::Interest::READABLE)?;
+            self.connections.insert(dst, ClientConnection::new(stream));
+            self.token_to_addr.insert(token, dst);
+        }
+
+        let conn = self.connections.get_mut(&dst).expect("just inserted");
+        if conn.send_buf.is_empty() {
+            let token = self
+                .token_to_addr
+                .iter()
+                .find(|(_, addr)| **addr == dst)
+                .map(|(t, _)| *t)
+                .expect("bug");
+            poll.registry().reregister(
+                &mut conn.stream,
+                token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
+        }
+
+        writeln!(
+            conn.send_buf,
+            r#"{{"jsonrpc":"2.0","id":{},"method":"{}","params":{}}}"#,
+            nojson::Json(id),
+            method,
+            nojson::Json(params)
+        )?;
+        Ok(())
+    }
+
+    pub fn pending_send_bytes(&self, dst: std::net::SocketAddr) -> usize {
+        self.connections
+            .get(&dst)
+            .map(|conn| conn.send_buf.len().saturating_sub(conn.send_buf_offset))
+            .unwrap_or(0)
+    }
+
+    pub fn next_response_line(&mut self) -> Option<(std::net::SocketAddr, &[u8])> {
+        loop {
+            let token = self.next_request_candidates.first().copied()?;
+            let addr = self.token_to_addr.get(&token).copied()?;
+            let conn = self.connections.get_mut(&addr)?;
+
+            let start = conn.response_start;
+            let Some(end) = conn.recv_buf[start..conn.recv_buf_offset]
+                .iter()
+                .position(|b| *b == b'\n')
+                .map(|p| start + p)
+            else {
+                if conn.response_start > 0 {
+                    conn.recv_buf
+                        .copy_within(conn.response_start..conn.recv_buf_offset, 0);
+                    conn.recv_buf_offset -= conn.response_start;
+                    conn.response_start = 0;
+                }
+                self.next_request_candidates.remove(&token);
+                continue;
+            };
+            conn.response_start = end + 1;
+
+            let conn = self.connections.get(&addr)?;
+            let line = &conn.recv_buf[start..end];
+            return Some((addr, line));
+        }
+    }
+
+    pub fn disconnect(&mut self, dst: std::net::SocketAddr) {
+        if let Some(conn) = self.connections.remove(&dst) {
+            let _ = conn.stream.shutdown(std::net::Shutdown::Both);
+        }
+        // Remove token mapping
+        self.token_to_addr.retain(|_, addr| *addr != dst);
+        // Remove from candidates
+        self.next_request_candidates.retain(|token| {
+            self.token_to_addr
+                .get(token)
+                .map(|a| *a != dst)
+                .unwrap_or(true)
+        });
+    }
+
+    fn next_token(&mut self) -> std::io::Result<mio::Token> {
+        let capacity = self.max_token.0.saturating_sub(self.min_token.0);
+        if self.connections.len() >= capacity {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "no available tokens",
+            ));
+        }
+
+        // Find an available token
+        loop {
+            let token = mio::Token(self.min_token.0 + self.next_token_offset);
+            self.next_token_offset = (self.next_token_offset + 1) % capacity;
+
+            if !self.token_to_addr.contains_key(&token) {
+                return Ok(token);
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -537,188 +715,5 @@ impl ClientConnection {
             }
         }
         Ok(())
-    }
-}
-
-impl JsonRpcClient {
-    pub fn start(
-        _poll: &mut mio::Poll,
-        min_token: mio::Token,
-        max_token: mio::Token,
-    ) -> std::io::Result<Self> {
-        if max_token.0.saturating_sub(min_token.0) == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "token range must be at least 1",
-            ));
-        }
-
-        Ok(Self {
-            min_token,
-            max_token,
-            connections: HashMap::new(),
-            token_to_addr: HashMap::new(),
-            next_token_offset: 0,
-            next_request_candidates: std::collections::BTreeSet::new(),
-        })
-    }
-
-    pub fn handle_mio_event(
-        &mut self,
-        poll: &mut mio::Poll,
-        event: &mio::event::Event,
-    ) -> std::io::Result<bool> {
-        let addr = match self.token_to_addr.get(&event.token()).copied() {
-            Some(addr) => addr,
-            None => return Ok(false),
-        };
-
-        let conn = match self.connections.get_mut(&addr) {
-            Some(conn) => conn,
-            None => return Ok(false),
-        };
-
-        let is_old_send_buf_empty = conn.send_buf.is_empty();
-        if conn.handle_mio_event(event).is_ok() {
-            if is_old_send_buf_empty != conn.send_buf.is_empty() {
-                let interest = if conn.send_buf.is_empty() {
-                    mio::Interest::READABLE
-                } else {
-                    mio::Interest::READABLE | mio::Interest::WRITABLE
-                };
-                poll.registry()
-                    .reregister(&mut conn.stream, event.token(), interest)?;
-            }
-
-            if event.is_readable() && conn.recv_buf_offset > 0 {
-                self.next_request_candidates.insert(event.token());
-            }
-        } else {
-            // Connection error, remove it
-            if let Some(mut conn) = self.connections.remove(&addr) {
-                poll.registry().deregister(&mut conn.stream)?;
-            }
-            self.token_to_addr.remove(&event.token());
-            self.next_request_candidates.remove(&event.token());
-        }
-        Ok(true)
-    }
-
-    pub fn send_request<T>(
-        &mut self,
-        poll: &mut mio::Poll,
-        dst: SocketAddr,
-        id: Option<&JsonRpcRequestId>,
-        method: &str,
-        params: T,
-    ) -> std::io::Result<()>
-    where
-        T: nojson::DisplayJson,
-    {
-        // Ensure connection exists
-        if !self.connections.contains_key(&dst) {
-            let mut stream = mio::net::TcpStream::connect(dst)?;
-            let token = self.next_token()?;
-            stream.set_nodelay(true)?;
-            poll.registry()
-                .register(&mut stream, token, mio::Interest::READABLE)?;
-            self.connections.insert(dst, ClientConnection::new(stream));
-            self.token_to_addr.insert(token, dst);
-        }
-
-        let conn = self.connections.get_mut(&dst).expect("just inserted");
-        if conn.send_buf.is_empty() {
-            let token = self
-                .token_to_addr
-                .iter()
-                .find(|(_, addr)| **addr == dst)
-                .map(|(t, _)| *t)
-                .expect("bug");
-            poll.registry().reregister(
-                &mut conn.stream,
-                token,
-                mio::Interest::READABLE | mio::Interest::WRITABLE,
-            )?;
-        }
-
-        writeln!(
-            conn.send_buf,
-            r#"{{"jsonrpc":"2.0","id":{},"method":"{}","params":{}}}"#,
-            nojson::Json(id),
-            method,
-            nojson::Json(params)
-        )?;
-        Ok(())
-    }
-
-    pub fn pending_send_bytes(&self, dst: SocketAddr) -> usize {
-        self.connections
-            .get(&dst)
-            .map(|conn| conn.send_buf.len().saturating_sub(conn.send_buf_offset))
-            .unwrap_or(0)
-    }
-
-    pub fn next_response_line(&mut self) -> Option<(SocketAddr, &[u8])> {
-        loop {
-            let token = self.next_request_candidates.first().copied()?;
-            let addr = self.token_to_addr.get(&token).copied()?;
-            let conn = self.connections.get_mut(&addr)?;
-
-            let start = conn.response_start;
-            let Some(end) = conn.recv_buf[start..conn.recv_buf_offset]
-                .iter()
-                .position(|b| *b == b'\n')
-                .map(|p| start + p)
-            else {
-                if conn.response_start > 0 {
-                    conn.recv_buf
-                        .copy_within(conn.response_start..conn.recv_buf_offset, 0);
-                    conn.recv_buf_offset -= conn.response_start;
-                    conn.response_start = 0;
-                }
-                self.next_request_candidates.remove(&token);
-                continue;
-            };
-            conn.response_start = end + 1;
-
-            let conn = self.connections.get(&addr)?;
-            let line = &conn.recv_buf[start..end];
-            return Some((addr, line));
-        }
-    }
-
-    pub fn disconnect(&mut self, dst: SocketAddr) {
-        if let Some(conn) = self.connections.remove(&dst) {
-            let _ = conn.stream.shutdown(std::net::Shutdown::Both);
-        }
-        // Remove token mapping
-        self.token_to_addr.retain(|_, addr| *addr != dst);
-        // Remove from candidates
-        self.next_request_candidates.retain(|token| {
-            self.token_to_addr
-                .get(token)
-                .map(|a| *a != dst)
-                .unwrap_or(true)
-        });
-    }
-
-    fn next_token(&mut self) -> std::io::Result<mio::Token> {
-        let capacity = self.max_token.0.saturating_sub(self.min_token.0);
-        if self.connections.len() >= capacity {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "no available tokens",
-            ));
-        }
-
-        // Find an available token
-        loop {
-            let token = mio::Token(self.min_token.0 + self.next_token_offset);
-            self.next_token_offset = (self.next_token_offset + 1) % capacity;
-
-            if !self.token_to_addr.contains_key(&token) {
-                return Ok(token);
-            }
-        }
     }
 }
