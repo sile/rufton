@@ -347,7 +347,7 @@ pub enum JsonRpcPredefinedError {
 }
 
 impl JsonRpcPredefinedError {
-    pub fn code(&self) -> i32 {
+    pub fn code(self) -> i32 {
         match self {
             Self::ParseError => -32700,
             Self::InvalidRequest => -32600,
@@ -357,7 +357,7 @@ impl JsonRpcPredefinedError {
         }
     }
 
-    pub fn message(&self) -> &'static str {
+    pub fn message(self) -> &'static str {
         match self {
             Self::ParseError => "Parse error",
             Self::InvalidRequest => "Invalid Request",
