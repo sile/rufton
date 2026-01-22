@@ -3,9 +3,8 @@ use std::io::{Read, Write};
 #[derive(Debug)]
 pub struct JsonRpcServer {
     min_token: mio::Token,
-    max_token: mio::Token,
     listener: mio::net::TcpListener,
-    clients: std::collections::HashMap<mio::Token, Client>,
+    clients: Vec<Option<Client>>,
     next_client_seqno: u64,
     next_request_candidates: std::collections::BTreeSet<mio::Token>,
 }
@@ -29,11 +28,11 @@ impl JsonRpcServer {
         poll.registry()
             .register(&mut listener, min_token, mio::Interest::READABLE)?;
 
+        let capacity = max_token.0.saturating_sub(min_token.0);
         Ok(Self {
             min_token,
-            max_token,
             listener,
-            clients: std::collections::HashMap::new(),
+            clients: std::iter::repeat_with(|| None).take(capacity).collect(),
             next_client_seqno: 0,
             next_request_candidates: std::collections::BTreeSet::new(),
         })
@@ -54,11 +53,12 @@ impl JsonRpcServer {
                         stream.set_nodelay(true)?;
                         poll.registry()
                             .register(&mut stream, id.token, mio::Interest::READABLE)?;
-                        self.clients.insert(id.token, Client::new(id, stream));
+                        let i = self.token_to_index(id.token);
+                        self.clients[i] = Some(Client::new(id, stream));
                     }
                 }
             }
-        } else if let Some(client) = self.clients.get_mut(&event.token()) {
+        } else if let Some(client) = self.get_client_mut(event.token()) {
             let is_old_send_buf_empty = client.send_buf.is_empty();
             if client.handle_mio_event(event).is_ok() {
                 if is_old_send_buf_empty != client.send_buf.is_empty() {
@@ -75,8 +75,10 @@ impl JsonRpcServer {
                     self.next_request_candidates.insert(event.token());
                 }
             } else {
-                poll.registry().deregister(&mut client.stream)?;
-                self.clients.remove(&event.token());
+                let i = self.token_to_index(event.token());
+                if let Some(mut client) = self.clients[i].take() {
+                    poll.registry().deregister(&mut client.stream)?;
+                }
                 self.next_request_candidates.remove(&event.token());
             }
             Ok(true)
@@ -86,21 +88,43 @@ impl JsonRpcServer {
     }
 
     fn next_client_id(&mut self) -> std::io::Result<ClientId> {
-        // NOTE: For simplicity, uses linear search to find a free token
-        let token = (self.min_token.0..=self.max_token.0)
-            .map(mio::Token)
-            .skip(1) // Excludes the listener token
-            .find(|t| !self.clients.contains_key(&t))
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no available tokens"))?;
-        let seqno = self.next_client_seqno;
-        self.next_client_seqno += 1;
-        Ok(ClientId { seqno, token })
+        // Find the first available slot
+        for (i, slot) in self.clients.iter().enumerate() {
+            if slot.is_none() {
+                let token = self.index_to_token(i);
+                let seqno = self.next_client_seqno;
+                self.next_client_seqno += 1;
+                return Ok(ClientId { seqno, token });
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "no available tokens",
+        ))
+    }
+
+    fn token_to_index(&self, token: mio::Token) -> usize {
+        token.0.saturating_sub(self.min_token.0 + 1)
+    }
+
+    fn index_to_token(&self, i: usize) -> mio::Token {
+        mio::Token(self.min_token.0 + i + 1)
+    }
+
+    fn get_client(&self, token: mio::Token) -> Option<&Client> {
+        let i = self.token_to_index(token);
+        self.clients.get(i).and_then(|c| c.as_ref())
+    }
+
+    fn get_client_mut(&mut self, token: mio::Token) -> Option<&mut Client> {
+        let i = self.token_to_index(token);
+        self.clients.get_mut(i).and_then(|c| c.as_mut())
     }
 
     pub fn next_request_line(&mut self) -> Option<(ClientId, &[u8])> {
         loop {
             let token = self.next_request_candidates.first().copied()?;
-            let client = self.clients.get_mut(&token).expect("bug");
+            let client = self.get_client_mut(token).expect("bug");
             let start = client.request_start;
             let Some(end) = client.recv_buf[start..client.recv_buf_offset]
                 .iter()
@@ -119,7 +143,7 @@ impl JsonRpcServer {
             };
             client.request_start = end;
 
-            let client = self.clients.get(&token).expect("bug");
+            let client = self.get_client(token).expect("bug");
             let line = &client.recv_buf[start..end];
             return Some((client.id, line));
         }
@@ -135,14 +159,15 @@ impl JsonRpcServer {
     where
         T: nojson::DisplayJson,
     {
-        let Some(client) = self
-            .clients
-            .get_mut(&client_id.token)
-            .filter(|c| c.id == client_id)
-        else {
+        let Some(client) = self.get_client_mut(client_id.token) else {
             // Already disconnected
             return Ok(());
         };
+
+        if client.id != client_id {
+            // Already disconnected (different seqno)
+            return Ok(());
+        }
 
         if client.send_buf.is_empty() {
             poll.registry().reregister(
@@ -169,14 +194,15 @@ impl JsonRpcServer {
         code: i32,
         message: &str,
     ) -> std::io::Result<()> {
-        let Some(client) = self
-            .clients
-            .get_mut(&client_id.token)
-            .filter(|c| c.id == client_id)
-        else {
+        let Some(client) = self.get_client_mut(client_id.token) else {
             // Already disconnected
             return Ok(());
         };
+
+        if client.id != client_id {
+            // Already disconnected (different seqno)
+            return Ok(());
+        }
 
         if client.send_buf.is_empty() {
             poll.registry().reregister(
@@ -209,14 +235,15 @@ impl JsonRpcServer {
     where
         T: nojson::DisplayJson,
     {
-        let Some(client) = self
-            .clients
-            .get_mut(&client_id.token)
-            .filter(|c| c.id == client_id)
-        else {
+        let Some(client) = self.get_client_mut(client_id.token) else {
             // Already disconnected
             return Ok(());
         };
+
+        if client.id != client_id {
+            // Already disconnected (different seqno)
+            return Ok(());
+        }
 
         if client.send_buf.is_empty() {
             poll.registry().reregister(
