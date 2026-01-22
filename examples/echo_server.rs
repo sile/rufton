@@ -51,18 +51,12 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => {
                     server.reply_err(&mut poll, client_id, None, e.code(), e.message())?;
                 }
-                Ok(req) => {}
+                Ok(req) => {
+                    let Some(req_id) = req.id().cloned() else {
+                        continue;
+                    };
+                }
             }
-            /*// Echo back the received line
-            if !line.is_empty() {
-                let response = String::from_utf8_lossy(line);
-                let _ = server.reply_ok(
-                    &mut poll,
-                    client_id,
-                    &raftjson::json_rpc_server::JsonRpcRequestId::Integer(1),
-                    &response,
-                );
-            }*/
         }
     }
 }

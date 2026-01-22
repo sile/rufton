@@ -322,7 +322,7 @@ impl Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum JsonRpcRequestId {
     Integer(i64),
     String(String),
