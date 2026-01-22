@@ -467,3 +467,49 @@ impl<'text> JsonRpcRequest<'text> {
         })
     }
 }
+
+#[derive(Debug)]
+pub struct JsonRpcClient {
+    //
+}
+
+impl JsonRpcClient {
+    #[expect(unused)]
+    pub fn handle_mio_event(
+        &mut self,
+        poll: &mut mio::Poll,
+        event: &mio::event::Event,
+    ) -> std::io::Result<bool> {
+        todo!()
+    }
+
+    #[expect(unused)]
+    pub fn send_request<T>(
+        &mut self,
+        poll: &mut mio::Poll,
+        dst: std::net::SocketAddr,
+        id: Option<&JsonRpcRequestId>,
+        method: &str,
+        params: T,
+    ) -> std::io::Result<()>
+    where
+        T: nojson::DisplayJson,
+    {
+        todo!()
+    }
+
+    // TODO: rename
+    #[expect(unused)]
+    pub fn get_send_buf_size(&self, dst: std::net::SocketAddr) -> usize {
+        todo!()
+    }
+
+    pub fn next_response_line(&mut self) -> Option<(std::net::SocketAddr, &[u8])> {
+        todo!()
+    }
+
+    #[expect(unused)]
+    pub fn disconnect(&mut self, dst: std::net::SocketAddr) {
+        todo!()
+    }
+}
