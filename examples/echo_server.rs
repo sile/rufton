@@ -29,12 +29,8 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let min_token = mio::Token(0);
     let max_token = mio::Token(1024);
 
-    let mut server = raftjson::jsonrpc::JsonRpcServer::start(
-        &mut poll,
-        min_token,
-        max_token,
-        socket_addr,
-    )?;
+    let mut server =
+        raftjson::jsonrpc::JsonRpcServer::start(&mut poll, min_token, max_token, socket_addr)?;
     eprintln!("Echo server listening on {}", listen_addr);
 
     let mut events = mio::Events::with_capacity(128);

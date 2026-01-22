@@ -36,7 +36,6 @@ pub enum TransportEvent {
     Woken,
 }
 
-
 #[expect(dead_code)]
 #[derive(Debug)]
 pub struct DirectRpcTransport {
