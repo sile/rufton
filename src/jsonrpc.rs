@@ -124,23 +124,23 @@ impl JsonRpcServer {
         loop {
             let token = self.next_request_candidates.first().copied()?;
             let client = self.get_client_mut(token).expect("bug");
-            let start = client.request_start;
+            let start = client.next_line_start;
             let Some(end) = client.recv_buf[start..client.recv_buf_offset]
                 .iter()
                 .position(|b| *b == b'\n')
                 .map(|p| start + p)
             else {
-                if client.request_start > 0 {
+                if client.next_line_start > 0 {
                     client
                         .recv_buf
-                        .copy_within(client.request_start..client.recv_buf_offset, 0);
-                    client.recv_buf_offset -= client.request_start;
-                    client.request_start = 0;
+                        .copy_within(client.next_line_start..client.recv_buf_offset, 0);
+                    client.recv_buf_offset -= client.next_line_start;
+                    client.next_line_start = 0;
                 }
                 self.next_request_candidates.remove(&token);
                 continue;
             };
-            client.request_start = end + 1;
+            client.next_line_start = end + 1;
 
             let client = self.get_client(token).expect("bug");
             let line = &client.recv_buf[start..end];
@@ -267,7 +267,7 @@ struct Client {
     stream: mio::net::TcpStream,
     recv_buf: Vec<u8>,
     recv_buf_offset: usize,
-    request_start: usize,
+    next_line_start: usize,
     send_buf: Vec<u8>,
     send_buf_offset: usize,
 }
@@ -279,7 +279,7 @@ impl Client {
             stream,
             recv_buf: vec![0; 4096],
             recv_buf_offset: 0,
-            request_start: 0,
+            next_line_start: 0,
             send_buf: Vec::new(),
             send_buf_offset: 0,
         }
