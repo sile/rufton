@@ -35,7 +35,6 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
         max_token,
         socket_addr,
     )?;
-
     eprintln!("Echo server listening on {}", listen_addr);
 
     let mut events = mio::Events::with_capacity(128);
@@ -47,9 +46,14 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
             let _ = server.handle_mio_event(&mut poll, event);
         }
 
-        // Process any pending requests
         while let Some((client_id, line)) = server.next_request_line() {
-            // Echo back the received line
+            match raftjson::json_rpc_server::JsonRpcRequest::parse(line) {
+                Err(e) => {
+                    server.reply_err(&mut poll, client_id, None, e.code(), e.message())?;
+                }
+                Ok(req) => {}
+            }
+            /*// Echo back the received line
             if !line.is_empty() {
                 let response = String::from_utf8_lossy(line);
                 let _ = server.reply_ok(
@@ -58,7 +62,7 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
                     &raftjson::json_rpc_server::JsonRpcRequestId::Integer(1),
                     &response,
                 );
-            }
+            }*/
         }
     }
 }
