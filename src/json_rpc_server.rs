@@ -135,7 +135,30 @@ impl JsonRpcServer {
     where
         T: nojson::DisplayJson,
     {
-        todo!()
+        let Some(client) = self
+            .clients
+            .get_mut(&client_id.token)
+            .filter(|c| c.id == client_id)
+        else {
+            // Already disconnected
+            return Ok(());
+        };
+
+        if client.send_buf.is_empty() {
+            poll.registry().reregister(
+                &mut client.stream,
+                client_id.token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
+        }
+
+        writeln!(
+            client.send_buf,
+            r#"{{"jsonrpc":"2.0","id":{},"result":{}}}"#,
+            nojson::Json(request_id),
+            nojson::Json(result)
+        )?;
+        Ok(())
     }
 
     pub fn reply_err(
@@ -196,40 +219,6 @@ impl Client {
         }
     }
 
-    /*TODO: fn reply_null_id_err(
-        &mut self,
-        poll: &mut mio::Poll,
-        token: mio::Token,
-        error_code: JsonRpcPredefinedError,
-        error_data: String,
-    ) -> std::io::Result<()> {
-        let response = nojson::object(|f| {
-            f.member("jsonrpc", "2.0")?;
-            f.member(
-                "error",
-                nojson::object(|f| {
-                    f.member("code", error_code.code())?;
-                    f.member("message", error_code.message())?;
-                    f.member("data", &error_data)
-                }),
-            )?;
-            f.member("id", ())
-        });
-
-        writeln!(self.send_buf, "{response}")?;
-
-        // Update poll registration
-        let interest = if self.send_buf.len() > self.send_buf_offset {
-            mio::Interest::READABLE | mio::Interest::WRITABLE
-        } else {
-            mio::Interest::READABLE
-        };
-
-        poll.registry()
-            .reregister(&mut self.stream, token, interest)?;
-        Ok(())
-    }*/
-
     fn handle_mio_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
         if event.is_readable() {
             loop {
@@ -270,6 +259,27 @@ impl Client {
 pub enum JsonRpcRequestId {
     Integer(i64),
     String(String),
+}
+
+impl nojson::DisplayJson for JsonRpcRequestId {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        match self {
+            JsonRpcRequestId::Integer(n) => f.value(n),
+            JsonRpcRequestId::String(s) => f.string(s),
+        }
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for JsonRpcRequestId {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        match value.kind() {
+            nojson::JsonValueKind::Integer => value.try_into().map(Self::Integer),
+            nojson::JsonValueKind::String => value.try_into().map(Self::String),
+            _ => Err(value.invalid("id must be an integer or string")),
+        }
+    }
 }
 
 /// JSON-RPC 2.0 predefined error codes
@@ -363,11 +373,7 @@ impl<'text> JsonRpcRequest<'text> {
                     method = Some(val.to_unquoted_string_str().ok()?);
                 }
                 "id" => {
-                    if let Ok(v) = val.try_into() {
-                        id = Some(JsonRpcRequestId::Integer(v));
-                    } else {
-                        id = Some(JsonRpcRequestId::String(val.try_into().ok()?));
-                    }
+                    id = Some(JsonRpcRequestId::try_from(val).ok()?);
                 }
                 "params" => {
                     if !matches!(
