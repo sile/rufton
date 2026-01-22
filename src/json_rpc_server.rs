@@ -6,6 +6,7 @@ pub struct JsonRpcServer {
     max_token: mio::Token,
     listener: mio::net::TcpListener,
     clients: std::collections::HashMap<mio::Token, Client>,
+    next_client_seqno: u64,
     next_request_candidates: std::collections::BTreeSet<mio::Token>,
 }
 
@@ -33,6 +34,7 @@ impl JsonRpcServer {
             max_token,
             listener,
             clients: std::collections::HashMap::new(),
+            next_client_seqno: 0,
             next_request_candidates: std::collections::BTreeSet::new(),
         })
     }
@@ -48,11 +50,11 @@ impl JsonRpcServer {
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(true),
                     Err(e) => return Err(e),
                     Ok((mut stream, _addr)) => {
-                        let token = self.next_token()?;
+                        let id = self.next_client_id()?;
                         stream.set_nodelay(true)?;
                         poll.registry()
-                            .register(&mut stream, token, mio::Interest::READABLE)?;
-                        self.clients.insert(token, Client::new(stream));
+                            .register(&mut stream, id.token, mio::Interest::READABLE)?;
+                        self.clients.insert(id.token, Client::new(id, stream));
                     }
                 }
             }
@@ -83,16 +85,19 @@ impl JsonRpcServer {
         }
     }
 
-    fn next_token(&mut self) -> std::io::Result<mio::Token> {
+    fn next_client_id(&mut self) -> std::io::Result<ClientId> {
         // NOTE: For simplicity, uses linear search to find a free token
-        (self.min_token.0..=self.max_token.0)
+        let token = (self.min_token.0..=self.max_token.0)
             .map(mio::Token)
             .skip(1) // Excludes the listener token
             .find(|t| !self.clients.contains_key(&t))
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no available tokens"))
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no available tokens"))?;
+        let seqno = self.next_client_seqno;
+        self.next_client_seqno += 1;
+        Ok(ClientId { seqno, token })
     }
 
-    pub fn next_request_line(&mut self) -> Option<(mio::Token, &[u8])> {
+    pub fn next_request_line(&mut self) -> Option<(ClientId, &[u8])> {
         loop {
             let token = self.next_request_candidates.first().copied()?;
             let client = self.clients.get_mut(&token).expect("bug");
@@ -116,15 +121,15 @@ impl JsonRpcServer {
 
             let client = self.clients.get(&token).expect("bug");
             let line = &client.recv_buf[start..end];
-            return Some((token, line));
+            return Some((client.id, line));
         }
     }
 
     pub fn reply_ok<T>(
         &mut self,
         poll: &mut mio::Poll,
-        token: mio::Token,
-        id: &JsonRpcRequestId,
+        client_id: ClientId,
+        request_id: &JsonRpcRequestId,
         result: T,
     ) -> std::io::Result<()>
     where
@@ -136,8 +141,8 @@ impl JsonRpcServer {
     pub fn reply_err(
         &mut self,
         poll: &mut mio::Poll,
-        token: mio::Token,
-        id: Option<&JsonRpcRequestId>,
+        client_id: ClientId,
+        request_id: Option<&JsonRpcRequestId>,
         code: i32,
         message: &str,
     ) -> std::io::Result<()> {
@@ -148,7 +153,8 @@ impl JsonRpcServer {
         &mut self,
         poll: &mut mio::Poll,
         token: mio::Token,
-        id: Option<&JsonRpcRequestId>,
+        client_id: ClientId,
+        request_id: Option<&JsonRpcRequestId>,
         code: i32,
         message: &str,
         data: T,
@@ -160,8 +166,15 @@ impl JsonRpcServer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ClientId {
+    seqno: u64,
+    token: mio::Token,
+}
+
 #[derive(Debug)]
 struct Client {
+    id: ClientId,
     stream: mio::net::TcpStream,
     recv_buf: Vec<u8>,
     recv_buf_offset: usize,
@@ -171,8 +184,9 @@ struct Client {
 }
 
 impl Client {
-    fn new(stream: mio::net::TcpStream) -> Self {
+    fn new(id: ClientId, stream: mio::net::TcpStream) -> Self {
         Self {
+            id,
             stream,
             recv_buf: vec![0; 4096],
             recv_buf_offset: 0,
