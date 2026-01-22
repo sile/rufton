@@ -55,6 +55,8 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
                     let Some(req_id) = req.id().cloned() else {
                         continue;
                     };
+                    let json = req.into_json().into_owned();
+                    server.reply_ok(&mut poll, client_id, &req_id, json)?;
                 }
             }
         }

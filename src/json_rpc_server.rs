@@ -420,6 +420,10 @@ impl<'text> JsonRpcRequest<'text> {
         &self.json
     }
 
+    pub fn into_json(self) -> nojson::RawJson<'text> {
+        self.json
+    }
+
     fn from_json(json: nojson::RawJson<'text>) -> Option<Self> {
         let value = json.value();
         let mut has_jsonrpc = false;
