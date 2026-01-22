@@ -18,35 +18,47 @@ pub fn main() -> noargs::Result<()> {
         return Ok(());
     }
 
-
     let addr = format!("127.0.0.1:{port}");
     run_server(&addr)?;
     Ok(())
 }
 
 fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = std::net::TcpListener::bind(listen_addr)?;
-    eprintln!("Echo server listening on {}", listener.local_addr()?);
+    let socket_addr: std::net::SocketAddr = listen_addr.parse()?;
+    let mut poll = mio::Poll::new()?;
+    let min_token = mio::Token(0);
+    let max_token = mio::Token(1024);
 
-    for incoming in listener.incoming() {
-        let stream = incoming?;
-        std::thread::spawn(move || {
-            let _ = handle_client(stream);
-        });
+    let mut server = raftjson::json_rpc_server::JsonRpcServer::start(
+        &mut poll,
+        min_token,
+        max_token,
+        socket_addr,
+    )?;
+
+    eprintln!("Echo server listening on {}", listen_addr);
+
+    let mut events = mio::Events::with_capacity(128);
+
+    loop {
+        poll.poll(&mut events, None)?;
+
+        for event in events.iter() {
+            let _ = server.handle_mio_event(&mut poll, event);
+        }
+
+        // Process any pending requests
+        while let Some((client_id, line)) = server.next_request_line() {
+            // Echo back the received line
+            if !line.is_empty() {
+                let response = String::from_utf8_lossy(line);
+                let _ = server.reply_ok(
+                    &mut poll,
+                    client_id,
+                    &raftjson::json_rpc_server::JsonRpcRequestId::Integer(1),
+                    &response,
+                );
+            }
+        }
     }
-    Ok(())
-}
-
-fn handle_client(stream: std::net::TcpStream) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::{BufRead, BufReader, BufWriter, Write};
-
-    let reader = BufReader::new(stream.try_clone()?);
-    let mut writer = BufWriter::new(stream);
-
-    for line in reader.lines() {
-        let line = line?;
-        writeln!(writer, "{}", line)?;
-        writer.flush()?;
-    }
-    Ok(())
 }
