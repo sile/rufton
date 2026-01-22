@@ -29,7 +29,7 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let min_token = mio::Token(0);
     let max_token = mio::Token(1024);
 
-    let mut server = raftjson::json_rpc_server::JsonRpcServer::start(
+    let mut server = raftjson::jsonrpc::JsonRpcServer::start(
         &mut poll,
         min_token,
         max_token,
@@ -47,7 +47,7 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         while let Some((client_id, line)) = server.next_request_line() {
-            match raftjson::json_rpc_server::JsonRpcRequest::parse(line) {
+            match raftjson::jsonrpc::JsonRpcRequest::parse(line) {
                 Err(e) => {
                     server.reply_err(&mut poll, client_id, None, e.code(), e.message())?;
                 }
