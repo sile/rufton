@@ -478,12 +478,8 @@ pub struct JsonRpcClient {
 }
 
 impl JsonRpcClient {
-    pub fn start(
-        _poll: &mut mio::Poll,
-        min_token: mio::Token,
-        max_token: mio::Token,
-    ) -> std::io::Result<Self> {
-        if max_token.0.saturating_sub(min_token.0) == 0 {
+    pub fn new(min_token: mio::Token, max_token: mio::Token) -> std::io::Result<Self> {
+        if max_token.0 < min_token.0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "token range must be at least 1",
@@ -578,13 +574,19 @@ impl JsonRpcClient {
             )?;
         }
 
-        writeln!(
-            conn.send_buf,
-            r#"{{"jsonrpc":"2.0","id":{},"method":"{}","params":{}}}"#,
-            nojson::Json(id),
-            method,
-            nojson::Json(params)
-        )?;
+        let params = nojson::Json(params);
+        if let Some(id) = id {
+            let id = nojson::Json(id);
+            writeln!(
+                conn.send_buf,
+                r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}","params":{params}}}"#,
+            )?;
+        } else {
+            writeln!(
+                conn.send_buf,
+                r#"{{"jsonrpc":"2.0","method":"{method}","params":{params}}}"#,
+            )?;
+        }
         Ok(())
     }
 
