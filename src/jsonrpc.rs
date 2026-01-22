@@ -498,9 +498,9 @@ impl JsonRpcClient {
         todo!()
     }
 
-    // TODO: rename
+    /// Returns the size of remaining bytes to be sent to the peer
     #[expect(unused)]
-    pub fn get_send_buf_size(&self, dst: std::net::SocketAddr) -> usize {
+    pub fn pending_send_bytes(&self, dst: std::net::SocketAddr) -> usize {
         todo!()
     }
 
