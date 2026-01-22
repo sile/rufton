@@ -169,7 +169,31 @@ impl JsonRpcServer {
         code: i32,
         message: &str,
     ) -> std::io::Result<()> {
-        todo!()
+        let Some(client) = self
+            .clients
+            .get_mut(&client_id.token)
+            .filter(|c| c.id == client_id)
+        else {
+            // Already disconnected
+            return Ok(());
+        };
+
+        if client.send_buf.is_empty() {
+            poll.registry().reregister(
+                &mut client.stream,
+                client_id.token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
+        }
+
+        writeln!(
+            client.send_buf,
+            r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}"}}}}"#,
+            nojson::Json(request_id),
+            code,
+            message
+        )?;
+        Ok(())
     }
 
     pub fn reply_err_with_data<T>(
@@ -185,7 +209,32 @@ impl JsonRpcServer {
     where
         T: nojson::DisplayJson,
     {
-        todo!()
+        let Some(client) = self
+            .clients
+            .get_mut(&client_id.token)
+            .filter(|c| c.id == client_id)
+        else {
+            // Already disconnected
+            return Ok(());
+        };
+
+        if client.send_buf.is_empty() {
+            poll.registry().reregister(
+                &mut client.stream,
+                client_id.token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
+        }
+
+        writeln!(
+            client.send_buf,
+            r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}","data":{}}}}}"#,
+            nojson::Json(request_id),
+            code,
+            message,
+            nojson::Json(data)
+        )?;
+        Ok(())
     }
 }
 
