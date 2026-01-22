@@ -11,3 +11,6 @@ rand = "0.9.2"
 
 [patch.crates-io]
 nojson = { path = "../nojson" }
+
+[dev-dependencies]
+noargs = "0.4.2"
