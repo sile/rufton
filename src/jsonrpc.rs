@@ -262,6 +262,7 @@ pub struct ClientId {
     token: mio::Token,
 }
 
+// TODO: rename to be able to support JsonRpcClient
 #[derive(Debug)]
 struct Client {
     id: ClientId,
@@ -470,7 +471,9 @@ impl<'text> JsonRpcRequest<'text> {
 
 #[derive(Debug)]
 pub struct JsonRpcClient {
-    //
+    min_token: mio::Token,
+    max_token: mio::Token,
+    // TODO: Add other field
 }
 
 impl JsonRpcClient {
@@ -495,6 +498,7 @@ impl JsonRpcClient {
     where
         T: nojson::DisplayJson,
     {
+        // note: connect if the dst has not been connected
         todo!()
     }
 
