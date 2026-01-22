@@ -141,7 +141,7 @@ impl JsonRpcServer {
                 self.next_request_candidates.remove(&token);
                 continue;
             };
-            client.request_start = end;
+            client.request_start = end + 1;
 
             let client = self.get_client(token).expect("bug");
             let line = &client.recv_buf[start..end];
