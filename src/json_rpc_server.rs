@@ -160,12 +160,9 @@ impl JsonRpcServer {
         T: nojson::DisplayJson,
     {
         let Some(client) = self.get_client_mut(client_id.token) else {
-            // Already disconnected
             return Ok(());
         };
-
-        if client.id != client_id {
-            // Already disconnected (different seqno)
+        if client.id.seqno != client_id.seqno {
             return Ok(());
         }
 
@@ -195,12 +192,9 @@ impl JsonRpcServer {
         message: &str,
     ) -> std::io::Result<()> {
         let Some(client) = self.get_client_mut(client_id.token) else {
-            // Already disconnected
             return Ok(());
         };
-
-        if client.id != client_id {
-            // Already disconnected (different seqno)
+        if client.id.seqno != client_id.seqno {
             return Ok(());
         }
 
@@ -236,12 +230,9 @@ impl JsonRpcServer {
         T: nojson::DisplayJson,
     {
         let Some(client) = self.get_client_mut(client_id.token) else {
-            // Already disconnected
             return Ok(());
         };
-
-        if client.id != client_id {
-            // Already disconnected (different seqno)
+        if client.id.seqno != client_id.seqno {
             return Ok(());
         }
 
