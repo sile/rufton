@@ -465,7 +465,7 @@ impl<'text> JsonRpcRequest<'text> {
 pub struct JsonRpcClient {
     min_token: mio::Token,
     max_token: mio::Token,
-    connections: std::collections::HashMap<std::net::SocketAddr, ClientConnection>,
+    connections: std::collections::HashMap<std::net::SocketAddr, Peer>,
     token_to_addr: std::collections::HashMap<mio::Token, std::net::SocketAddr>,
     next_token_offset: usize,
     next_request_candidates: std::collections::BTreeSet<mio::Token>,
@@ -546,7 +546,12 @@ impl JsonRpcClient {
             stream.set_nodelay(true)?;
             poll.registry()
                 .register(&mut stream, token, mio::Interest::READABLE)?;
-            self.connections.insert(dst, ClientConnection::new(stream));
+            let peer_id = PeerId {
+                seqno: 0,
+                token,
+                addr: dst,
+            };
+            self.connections.insert(dst, Peer::new(peer_id, stream));
             self.token_to_addr.insert(token, dst);
         }
 
@@ -594,31 +599,26 @@ impl JsonRpcClient {
             let addr = self.token_to_addr.get(&token).copied()?;
             let conn = self.connections.get_mut(&addr)?;
 
-            let start = conn.response_start;
+            let start = conn.next_line_start;
             let Some(end) = conn.recv_buf[start..conn.recv_buf_offset]
                 .iter()
                 .position(|b| *b == b'\n')
                 .map(|p| start + p)
             else {
-                if conn.response_start > 0 {
+                if conn.next_line_start > 0 {
                     conn.recv_buf
-                        .copy_within(conn.response_start..conn.recv_buf_offset, 0);
-                    conn.recv_buf_offset -= conn.response_start;
-                    conn.response_start = 0;
+                        .copy_within(conn.next_line_start..conn.recv_buf_offset, 0);
+                    conn.recv_buf_offset -= conn.next_line_start;
+                    conn.next_line_start = 0;
                 }
                 self.next_request_candidates.remove(&token);
                 continue;
             };
-            conn.response_start = end + 1;
+            conn.next_line_start = end + 1;
 
             let conn = self.connections.get(&addr)?;
             let line = &conn.recv_buf[start..end];
-            let peer_id = PeerId {
-                seqno: 0,
-                token,
-                addr,
-            };
-            return Some((peer_id, line));
+            return Some((conn.id, line));
         }
     }
 
@@ -652,63 +652,5 @@ impl JsonRpcClient {
                 return Ok(token);
             }
         }
-    }
-}
-
-#[derive(Debug)]
-struct ClientConnection {
-    stream: mio::net::TcpStream,
-    recv_buf: Vec<u8>,
-    recv_buf_offset: usize,
-    response_start: usize,
-    send_buf: Vec<u8>,
-    send_buf_offset: usize,
-}
-
-impl ClientConnection {
-    fn new(stream: mio::net::TcpStream) -> Self {
-        Self {
-            stream,
-            recv_buf: vec![0; 4096],
-            recv_buf_offset: 0,
-            response_start: 0,
-            send_buf: Vec::new(),
-            send_buf_offset: 0,
-        }
-    }
-
-    fn handle_mio_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
-        if event.is_readable() {
-            loop {
-                match self.stream.read(&mut self.recv_buf[self.recv_buf_offset..]) {
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e),
-                    Ok(0) if self.recv_buf.len() == self.recv_buf_offset => {
-                        self.recv_buf.resize(self.recv_buf_offset * 2, 0);
-                    }
-                    Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
-                    Ok(n) => self.recv_buf_offset += n,
-                }
-            }
-        }
-        if event.is_writable() {
-            while self.send_buf.len() > self.send_buf_offset {
-                match self.stream.write(&self.send_buf[self.send_buf_offset..]) {
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e),
-                    Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
-                    Ok(n) => {
-                        self.send_buf_offset += n;
-                    }
-                }
-            }
-            if self.send_buf_offset > self.send_buf.len() / 2 {
-                self.send_buf.copy_within(self.send_buf_offset.., 0);
-                self.send_buf
-                    .truncate(self.send_buf.len() - self.send_buf_offset);
-                self.send_buf_offset = 0;
-            }
-        }
-        Ok(())
     }
 }
