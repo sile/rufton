@@ -568,7 +568,7 @@ impl JsonRpcClient {
         id: Option<&JsonRpcRequestId>,
         method: &str,
         params: T,
-    ) -> std::io::Result<()>
+    ) -> std::io::Result<PeerId>
     where
         T: nojson::DisplayJson,
     {
@@ -616,7 +616,7 @@ impl JsonRpcClient {
                 r#"{{"jsonrpc":"2.0","method":"{method}","params":{params}}}"#,
             )?;
         }
-        Ok(())
+        Ok(conn.id)
     }
 
     pub fn pending_send_bytes(&self, dst: std::net::SocketAddr) -> usize {
