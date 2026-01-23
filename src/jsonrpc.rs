@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 pub struct JsonRpcServer {
     min_token: mio::Token,
     listener: mio::net::TcpListener,
-    clients: Vec<Option<Client>>,
+    clients: Vec<Option<Peer>>,
     next_client_seqno: u64,
     next_request_candidates: std::collections::BTreeSet<mio::Token>,
 }
@@ -47,13 +47,14 @@ impl JsonRpcServer {
                 match self.listener.accept() {
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(true),
                     Err(e) => return Err(e),
-                    Ok((mut stream, _addr)) => {
-                        let id = self.next_client_id()?;
+                    Ok((mut stream, addr)) => {
+                        let mut id = self.next_client_id()?;
+                        id.addr = addr;
                         stream.set_nodelay(true)?;
                         poll.registry()
                             .register(&mut stream, id.token, mio::Interest::READABLE)?;
                         let i = self.token_to_index(id.token);
-                        self.clients[i] = Some(Client::new(id, stream));
+                        self.clients[i] = Some(Peer::new(id, stream));
                     }
                 }
             }
@@ -86,14 +87,18 @@ impl JsonRpcServer {
         }
     }
 
-    fn next_client_id(&mut self) -> std::io::Result<ClientId> {
+    fn next_client_id(&mut self) -> std::io::Result<PeerId> {
         // Find the first available slot
         for (i, slot) in self.clients.iter().enumerate() {
             if slot.is_none() {
                 let token = self.index_to_token(i);
                 let seqno = self.next_client_seqno;
                 self.next_client_seqno += 1;
-                return Ok(ClientId { seqno, token });
+                return Ok(PeerId {
+                    seqno,
+                    token,
+                    addr: std::net::SocketAddr::from(([0, 0, 0, 0], 0)),
+                });
             }
         }
         Err(std::io::Error::new(
@@ -110,17 +115,17 @@ impl JsonRpcServer {
         mio::Token(self.min_token.0 + i + 1)
     }
 
-    fn get_client(&self, token: mio::Token) -> Option<&Client> {
+    fn get_client(&self, token: mio::Token) -> Option<&Peer> {
         let i = self.token_to_index(token);
         self.clients.get(i).and_then(|c| c.as_ref())
     }
 
-    fn get_client_mut(&mut self, token: mio::Token) -> Option<&mut Client> {
+    fn get_client_mut(&mut self, token: mio::Token) -> Option<&mut Peer> {
         let i = self.token_to_index(token);
         self.clients.get_mut(i).and_then(|c| c.as_mut())
     }
 
-    pub fn next_request_line(&mut self) -> Option<(ClientId, &[u8])> {
+    pub fn next_request_line(&mut self) -> Option<(PeerId, &[u8])> {
         loop {
             let token = self.next_request_candidates.first().copied()?;
             let client = self.get_client_mut(token).expect("bug");
@@ -151,24 +156,24 @@ impl JsonRpcServer {
     pub fn reply_ok<T>(
         &mut self,
         poll: &mut mio::Poll,
-        client_id: ClientId,
+        peer_id: PeerId,
         request_id: &JsonRpcRequestId,
         result: T,
     ) -> std::io::Result<()>
     where
         T: nojson::DisplayJson,
     {
-        let Some(client) = self.get_client_mut(client_id.token) else {
+        let Some(client) = self.get_client_mut(peer_id.token) else {
             return Ok(());
         };
-        if client.id.seqno != client_id.seqno {
+        if client.id.seqno != peer_id.seqno {
             return Ok(());
         }
 
         if client.send_buf.is_empty() {
             poll.registry().reregister(
                 &mut client.stream,
-                client_id.token,
+                peer_id.token,
                 mio::Interest::READABLE | mio::Interest::WRITABLE,
             )?;
         }
@@ -185,22 +190,22 @@ impl JsonRpcServer {
     pub fn reply_err(
         &mut self,
         poll: &mut mio::Poll,
-        client_id: ClientId,
+        peer_id: PeerId,
         request_id: Option<&JsonRpcRequestId>,
         code: i32,
         message: &str,
     ) -> std::io::Result<()> {
-        let Some(client) = self.get_client_mut(client_id.token) else {
+        let Some(client) = self.get_client_mut(peer_id.token) else {
             return Ok(());
         };
-        if client.id.seqno != client_id.seqno {
+        if client.id.seqno != peer_id.seqno {
             return Ok(());
         }
 
         if client.send_buf.is_empty() {
             poll.registry().reregister(
                 &mut client.stream,
-                client_id.token,
+                peer_id.token,
                 mio::Interest::READABLE | mio::Interest::WRITABLE,
             )?;
         }
@@ -218,7 +223,7 @@ impl JsonRpcServer {
     pub fn reply_err_with_data<T>(
         &mut self,
         poll: &mut mio::Poll,
-        client_id: ClientId,
+        peer_id: PeerId,
         request_id: Option<&JsonRpcRequestId>,
         code: i32,
         message: &str,
@@ -227,17 +232,17 @@ impl JsonRpcServer {
     where
         T: nojson::DisplayJson,
     {
-        let Some(client) = self.get_client_mut(client_id.token) else {
+        let Some(client) = self.get_client_mut(peer_id.token) else {
             return Ok(());
         };
-        if client.id.seqno != client_id.seqno {
+        if client.id.seqno != peer_id.seqno {
             return Ok(());
         }
 
         if client.send_buf.is_empty() {
             poll.registry().reregister(
                 &mut client.stream,
-                client_id.token,
+                peer_id.token,
                 mio::Interest::READABLE | mio::Interest::WRITABLE,
             )?;
         }
@@ -255,15 +260,15 @@ impl JsonRpcServer {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ClientId {
+pub struct PeerId {
     seqno: u64,
     token: mio::Token,
+    pub addr: std::net::SocketAddr,
 }
 
-// TODO: rename to be able to support JsonRpcClient
 #[derive(Debug)]
-struct Client {
-    id: ClientId,
+struct Peer {
+    id: PeerId,
     stream: mio::net::TcpStream,
     recv_buf: Vec<u8>,
     recv_buf_offset: usize,
@@ -272,8 +277,8 @@ struct Client {
     send_buf_offset: usize,
 }
 
-impl Client {
-    fn new(id: ClientId, stream: mio::net::TcpStream) -> Self {
+impl Peer {
+    fn new(id: PeerId, stream: mio::net::TcpStream) -> Self {
         Self {
             id,
             stream,
@@ -597,7 +602,7 @@ impl JsonRpcClient {
             .unwrap_or(0)
     }
 
-    pub fn next_response_line(&mut self) -> Option<(std::net::SocketAddr, &[u8])> {
+    pub fn next_response_line(&mut self) -> Option<(PeerId, &[u8])> {
         loop {
             let token = self.next_request_candidates.first().copied()?;
             let addr = self.token_to_addr.get(&token).copied()?;
@@ -622,7 +627,12 @@ impl JsonRpcClient {
 
             let conn = self.connections.get(&addr)?;
             let line = &conn.recv_buf[start..end];
-            return Some((addr, line));
+            let peer_id = PeerId {
+                seqno: 0,
+                token,
+                addr,
+            };
+            return Some((peer_id, line));
         }
     }
 
