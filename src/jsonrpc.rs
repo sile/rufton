@@ -5,7 +5,7 @@ pub struct JsonRpcServer {
     min_token: mio::Token,
     listener: mio::net::TcpListener,
     clients: Vec<Option<Peer>>,
-    next_client_seqno: u64,
+    next_peer_seqno: u64,
     next_request_candidates: std::collections::BTreeSet<mio::Token>,
 }
 
@@ -17,10 +17,7 @@ impl JsonRpcServer {
         listen_addr: std::net::SocketAddr,
     ) -> std::io::Result<Self> {
         if max_token.0.saturating_sub(min_token.0) == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "token range must be at least 2",
-            ));
+            return Err(std::io::Error::other("token range must be at least 2"));
         }
 
         let mut listener = mio::net::TcpListener::bind(listen_addr)?;
@@ -32,7 +29,7 @@ impl JsonRpcServer {
             min_token,
             listener,
             clients: std::iter::repeat_with(|| None).take(capacity).collect(),
-            next_client_seqno: 0,
+            next_peer_seqno: 0,
             next_request_candidates: std::collections::BTreeSet::new(),
         })
     }
@@ -48,8 +45,7 @@ impl JsonRpcServer {
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(true),
                     Err(e) => return Err(e),
                     Ok((mut stream, addr)) => {
-                        let mut id = self.next_client_id()?;
-                        id.addr = addr;
+                        let id = self.next_peer_id(addr)?;
                         stream.set_nodelay(true)?;
                         poll.registry()
                             .register(&mut stream, id.token, mio::Interest::READABLE)?;
@@ -87,24 +83,17 @@ impl JsonRpcServer {
         }
     }
 
-    fn next_client_id(&mut self) -> std::io::Result<PeerId> {
+    fn next_peer_id(&mut self, addr: std::net::SocketAddr) -> std::io::Result<PeerId> {
         // Find the first available slot
         for (i, slot) in self.clients.iter().enumerate() {
             if slot.is_none() {
                 let token = self.index_to_token(i);
-                let seqno = self.next_client_seqno;
-                self.next_client_seqno += 1;
-                return Ok(PeerId {
-                    seqno,
-                    token,
-                    addr: std::net::SocketAddr::from(([0, 0, 0, 0], 0)),
-                });
+                let seqno = self.next_peer_seqno;
+                self.next_peer_seqno += 1;
+                return Ok(PeerId { seqno, token, addr });
             }
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "no available tokens",
-        ))
+        Err(std::io::Error::other("no available tokens"))
     }
 
     fn token_to_index(&self, token: mio::Token) -> usize {
@@ -485,10 +474,7 @@ pub struct JsonRpcClient {
 impl JsonRpcClient {
     pub fn new(min_token: mio::Token, max_token: mio::Token) -> std::io::Result<Self> {
         if max_token.0 < min_token.0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "token range must be at least 1",
-            ));
+            return Err(std::io::Error::other("token range must be at least 1"));
         }
 
         Ok(Self {
@@ -654,10 +640,7 @@ impl JsonRpcClient {
     fn next_token(&mut self) -> std::io::Result<mio::Token> {
         let capacity = self.max_token.0.saturating_sub(self.min_token.0);
         if self.connections.len() >= capacity {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "no available tokens",
-            ));
+            return Err(std::io::Error::other("no available tokens"));
         }
 
         // Find an available token
