@@ -50,7 +50,7 @@ impl JsonRpcServer {
                         poll.registry()
                             .register(&mut stream, id.token, mio::Interest::READABLE)?;
                         let i = self.token_to_index(id.token);
-                        self.clients[i] = Some(Peer::new(id, stream));
+                        self.clients[i] = Some(Peer::new_connected(id, stream));
                     }
                 }
             }
@@ -259,6 +259,7 @@ pub struct PeerId {
 struct Peer {
     id: PeerId,
     stream: mio::net::TcpStream,
+    is_connected: bool,
     recv_buf: Vec<u8>,
     recv_buf_offset: usize,
     next_line_start: usize,
@@ -267,10 +268,26 @@ struct Peer {
 }
 
 impl Peer {
+    /// Create a new peer for client connections (initially unconnected)
     fn new(id: PeerId, stream: mio::net::TcpStream) -> Self {
         Self {
             id,
             stream,
+            is_connected: false,
+            recv_buf: vec![0; 4096],
+            recv_buf_offset: 0,
+            next_line_start: 0,
+            send_buf: Vec::new(),
+            send_buf_offset: 0,
+        }
+    }
+
+    /// Create a new peer for server-accepted connections (already connected)
+    fn new_connected(id: PeerId, stream: mio::net::TcpStream) -> Self {
+        Self {
+            id,
+            stream,
+            is_connected: true,
             recv_buf: vec![0; 4096],
             recv_buf_offset: 0,
             next_line_start: 0,
@@ -280,6 +297,22 @@ impl Peer {
     }
 
     fn handle_mio_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
+        // Handle connection completion for client connections
+        if !self.is_connected && event.is_writable() {
+            // Check if connection succeeded
+            if let Some(err) = self.stream.take_error()? {
+                return Err(err);
+            }
+            // Verify connection by checking peer_addr
+            match self.stream.peer_addr() {
+                Ok(_) => self.is_connected = true,
+                Err(e) if e.kind() == std::io::ErrorKind::NotConnected => {
+                    return Ok(()); // Still connecting, wait for next writable event
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         if event.is_readable() {
             loop {
                 match self.stream.read(&mut self.recv_buf[self.recv_buf_offset..]) {
