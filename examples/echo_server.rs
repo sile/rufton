@@ -39,7 +39,7 @@ fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
         poll.poll(&mut events, None)?;
 
         for event in events.iter() {
-            let _ = server.handle_mio_event(&mut poll, event);
+            server.handle_mio_event(&mut poll, event)?;
         }
 
         while let Some((client_id, line)) = server.next_request_line() {

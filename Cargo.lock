@@ -45,7 +45,7 @@ checksum = "9e5dc223a8d69eaeb19c31218a69a55112fe79965764430f092532aed848f1b8"
 
 [[package]]
 name = "nojson"
-version = "0.3.6"
+version = "0.3.7"
 
 [[package]]
 name = "ppv-lite86"

@@ -34,6 +34,10 @@ impl JsonRpcServer {
         })
     }
 
+    pub fn addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        self.listener.local_addr()
+    }
+
     pub fn handle_mio_event(
         &mut self,
         poll: &mut mio::Poll,
@@ -686,5 +690,36 @@ impl JsonRpcClient {
                 return Ok(token);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_server_basic_flow() -> std::io::Result<()> {
+        let mut poll = mio::Poll::new()?;
+        let mut events = mio::Events::with_capacity(128);
+
+        let listen_addr = ([127, 0, 0, 1], 0).into();
+        let mut server =
+            JsonRpcServer::start(&mut poll, mio::Token(0), mio::Token(4), listen_addr)?;
+        let mut client = JsonRpcClient::new(mio::Token(5), mio::Token(9))?;
+        let server_addr = server.addr()?;
+
+        for _ in 0..10 {
+            poll.poll(&mut events, Some(std::time::Duration::from_millis(100)))?;
+
+            for event in events.iter() {
+                if server.handle_mio_event(&mut poll, event)? {
+                    //
+                } else if client.handle_mio_event(&mut poll, event)? {
+                    //
+                }
+            }
+        }
+
+        panic!()
     }
 }
