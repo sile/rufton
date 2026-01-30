@@ -705,18 +705,25 @@ mod tests {
         let listen_addr = ([127, 0, 0, 1], 0).into();
         let mut server =
             JsonRpcServer::start(&mut poll, mio::Token(0), mio::Token(4), listen_addr)?;
-        let mut client = JsonRpcClient::new(mio::Token(5), mio::Token(9))?;
         let server_addr = server.addr()?;
+
+        let mut client = JsonRpcClient::new(mio::Token(5), mio::Token(9))?;
+        let req_id = JsonRpcRequestId::Integer(1);
+        let empty_params = nojson::object(|_| Ok(()));
+        client.send_request(&mut poll, server_addr, Some(&req_id), "hello", empty_params)?;
 
         for _ in 0..10 {
             poll.poll(&mut events, Some(std::time::Duration::from_millis(100)))?;
 
             for event in events.iter() {
-                if server.handle_mio_event(&mut poll, event)? {
-                    //
-                } else if client.handle_mio_event(&mut poll, event)? {
-                    //
-                }
+                let _ = server.handle_mio_event(&mut poll, event)?
+                    || client.handle_mio_event(&mut poll, event)?;
+            }
+            while let Some((peer, line)) = server.next_request_line() {
+                todo!()
+            }
+            while let Some((peer, line)) = client.next_response_line() {
+                todo!()
             }
         }
 
