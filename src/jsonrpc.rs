@@ -720,7 +720,11 @@ mod tests {
                     || client.handle_mio_event(&mut poll, event)?;
             }
             while let Some((peer, line)) = server.next_request_line() {
-                todo!()
+                let req = JsonRpcRequest::parse(line).expect("invalid request");
+                assert_eq!(req.method, "hello");
+                assert_eq!(req.id, Some(req_id.clone()));
+
+                server.reply_ok(&mut poll, peer, &req_id, "world")?;
             }
             while let Some((peer, line)) = client.next_response_line() {
                 todo!()
