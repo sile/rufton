@@ -603,17 +603,18 @@ impl JsonRpcClient {
             )?;
         }
 
+        let method = nojson::Json(method);
         let params = nojson::Json(params);
         if let Some(id) = id {
             let id = nojson::Json(id);
             writeln!(
                 conn.send_buf,
-                r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}","params":{params}}}"#,
+                r#"{{"jsonrpc":"2.0","id":{id},"method":{method},"params":{params}}}"#,
             )?;
         } else {
             writeln!(
                 conn.send_buf,
-                r#"{{"jsonrpc":"2.0","method":"{method}","params":{params}}}"#,
+                r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#,
             )?;
         }
         Ok(conn.id)
