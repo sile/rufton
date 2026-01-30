@@ -501,8 +501,7 @@ impl<'text> JsonRpcRequest<'text> {
 #[derive(Debug)]
 pub struct JsonRpcResponse<'text> {
     json: nojson::RawJson<'text>,
-    result_index: Option<usize>,
-    error_index: Option<usize>,
+    result: Result<usize, usize>,
     id: Option<JsonRpcRequestId>,
 }
 
@@ -543,32 +542,31 @@ impl<'text> JsonRpcResponse<'text> {
         if !has_jsonrpc {
             return Err(json.value().invalid("missing \"jsonrpc\" member"));
         }
-        if result_index.is_none() && error_index.is_none() {
+
+        let result = if let Some(i) = result_index {
+            Ok(i)
+        } else if let Some(i) = error_index {
+            Err(i)
+        } else {
             return Err(json
                 .value()
                 .invalid("either \"result\" or \"error\" member is required"));
-        }
+        };
 
-        Ok(Self {
-            json,
-            result_index,
-            error_index,
-            id,
-        })
+        Ok(Self { json, result, id })
     }
 
     pub fn id(&self) -> Option<&JsonRpcRequestId> {
         self.id.as_ref()
     }
 
-    pub fn result(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
-        self.result_index
-            .and_then(|i| self.json.get_value_by_index(i))
-    }
-
-    pub fn error(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
-        self.error_index
-            .and_then(|i| self.json.get_value_by_index(i))
+    pub fn result(
+        &self,
+    ) -> Result<nojson::RawJsonValue<'text, '_>, nojson::RawJsonValue<'text, '_>> {
+        match self.result {
+            Ok(i) => Ok(self.json.get_value_by_index(i).expect("bug")),
+            Err(i) => Err(self.json.get_value_by_index(i).expect("bug")),
+        }
     }
 
     pub fn json(&self) -> &nojson::RawJson<'text> {
