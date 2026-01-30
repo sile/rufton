@@ -510,6 +510,7 @@ impl<'text> JsonRpcResponse<'text> {
         let json = nojson::RawJson::parse(line)?;
         let value = json.value();
         let mut has_jsonrpc = false;
+        let mut has_id = false;
         let mut id = None;
         let mut result_index = None;
         let mut error_index = None;
@@ -524,7 +525,10 @@ impl<'text> JsonRpcResponse<'text> {
                     has_jsonrpc = true;
                 }
                 "id" => {
-                    id = Some(JsonRpcRequestId::try_from(val)?);
+                    if !val.kind().is_null() {
+                        id = Some(JsonRpcRequestId::try_from(val)?);
+                    }
+                    has_id = true;
                 }
                 "result" => {
                     result_index = Some(val.index());
@@ -541,6 +545,9 @@ impl<'text> JsonRpcResponse<'text> {
 
         if !has_jsonrpc {
             return Err(json.value().invalid("missing \"jsonrpc\" member"));
+        }
+        if !has_id {
+            return Err(json.value().invalid("missing \"id\" member"));
         }
 
         let result = if let Some(i) = result_index {
@@ -792,6 +799,7 @@ mod tests {
         let empty_params = nojson::object(|_| Ok(()));
         client.send_request(&mut poll, server_addr, Some(&req_id), "hello", empty_params)?;
 
+        let mut success = false;
         for _ in 0..10 {
             poll.poll(&mut events, Some(std::time::Duration::from_millis(100)))?;
 
@@ -806,11 +814,21 @@ mod tests {
 
                 server.reply_ok(&mut poll, peer, &req_id, "world")?;
             }
-            while let Some((peer, line)) = client.next_response_line() {
-                todo!()
+            while let Some((_peer, line)) = client.next_response_line() {
+                let line = std::str::from_utf8(line).expect("invalid response");
+                let res = JsonRpcResponse::parse(line).expect("invalid response");
+                assert_eq!(res.id, Some(req_id.clone()));
+                assert!(
+                    res.result()
+                        .expect("unexpected error response")
+                        .to_unquoted_string_str()
+                        .is_ok_and(|s| s == "world")
+                );
+                success = true;
             }
         }
 
-        panic!()
+        assert!(success);
+        Ok(())
     }
 }
