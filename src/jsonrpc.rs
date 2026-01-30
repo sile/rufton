@@ -499,6 +499,88 @@ impl<'text> JsonRpcRequest<'text> {
 }
 
 #[derive(Debug)]
+pub struct JsonRpcResponse<'text> {
+    json: nojson::RawJson<'text>,
+    result_index: Option<usize>,
+    error_index: Option<usize>,
+    id: Option<JsonRpcRequestId>,
+}
+
+impl<'text> JsonRpcResponse<'text> {
+    pub fn parse(line: &'text str) -> Result<Self, nojson::JsonParseError> {
+        let json = nojson::RawJson::parse(line)?;
+        let value = json.value();
+        let mut has_jsonrpc = false;
+        let mut id = None;
+        let mut result_index = None;
+        let mut error_index = None;
+
+        for (key, val) in value.to_object()? {
+            let key_str = key.to_unquoted_string_str()?;
+            match key_str.as_ref() {
+                "jsonrpc" => {
+                    if val.to_unquoted_string_str()? != "2.0" {
+                        return Err(val.invalid("unsupported JSON-RPC version"));
+                    }
+                    has_jsonrpc = true;
+                }
+                "id" => {
+                    id = Some(JsonRpcRequestId::try_from(val)?);
+                }
+                "result" => {
+                    result_index = Some(val.index());
+                }
+                "error" => {
+                    if !val.to_member("code")?.required()?.kind().is_integer() {
+                        return Err(val.invalid("non integer error code"));
+                    }
+                    error_index = Some(val.index());
+                }
+                _ => {}
+            }
+        }
+
+        if !has_jsonrpc {
+            return Err(json.value().invalid("missing \"jsonrpc\" member"));
+        }
+        if result_index.is_none() && error_index.is_none() {
+            return Err(json
+                .value()
+                .invalid("either \"result\" or \"error\" member is required"));
+        }
+
+        Ok(Self {
+            json,
+            result_index,
+            error_index,
+            id,
+        })
+    }
+
+    pub fn id(&self) -> Option<&JsonRpcRequestId> {
+        self.id.as_ref()
+    }
+
+    pub fn result(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
+        self.result_index
+            .and_then(|i| self.json.get_value_by_index(i))
+    }
+
+    pub fn error(&self) -> Option<nojson::RawJsonValue<'text, '_>> {
+        self.error_index
+            .and_then(|i| self.json.get_value_by_index(i))
+    }
+
+    pub fn json(&self) -> &nojson::RawJson<'text> {
+        &self.json
+    }
+
+    pub fn into_json(self) -> nojson::RawJson<'text> {
+        self.json
+    }
+}
+
+#[derive(Debug)]
 pub struct JsonRpcClient {
     min_token: mio::Token,
     max_token: mio::Token,
