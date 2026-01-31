@@ -30,7 +30,12 @@ impl RaftNode {
             return false;
         }
 
+        let initial_members = [self.inner.id()];
+        self.inner.create_cluster(&initial_members);
         self.initialized = true;
+
+        assert!(self.inner.role().is_leader());
+
         true
     }
 
@@ -55,7 +60,7 @@ impl RaftNode {
         }
 
         if !self.inner.role().is_leader() {
-            todo!()
+            todo!("{:?}", self.inner.role())
         }
 
         let position = self.inner.propose_command();
@@ -210,7 +215,7 @@ mod tests {
 
     #[test]
     fn init_cluster() {
-        let mut node = RaftNode::new(id(0), addr(9000), 0);
+        let mut node = RaftNode::new(node_id(0), addr(9000), 0);
         assert!(node.init_cluster());
         assert!(!node.init_cluster());
         assert_eq!(node.next_action(), None);
@@ -218,14 +223,14 @@ mod tests {
 
     #[test]
     fn propose_add_node() {
-        let mut node = RaftNode::new(id(0), addr(9000), 0);
+        let mut node = RaftNode::new(node_id(0), addr(9000), 0);
         assert!(node.init_cluster());
 
-        let proposal_id = node.propose_add_node(id(1), addr(9001));
+        let proposal_id = node.propose_add_node(node_id(1), addr(9001));
         assert_eq!(node.next_action(), None);
     }
 
-    fn id(n: u64) -> raftbare::NodeId {
+    fn node_id(n: u64) -> raftbare::NodeId {
         raftbare::NodeId::new(n)
     }
 
