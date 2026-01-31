@@ -17,6 +17,7 @@ impl RaftNode {
                 node_addrs: [(id, addr)].into_iter().collect(),
             },
             action_queue: std::collections::VecDeque::new(),
+
             recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
             instance_id,
@@ -86,6 +87,12 @@ pub struct ProposalId {
 pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
 
 impl JsonLineValue {
+    fn new_internal<T: nojson::DisplayJson>(v: T) -> Self {
+        let line = nojson::Json(v).to_string();
+        let json = nojson::RawJsonOwned::parse(line).expect("infallibe");
+        Self(std::sync::Arc::new(json))
+    }
+
     pub fn get(&self) -> nojson::RawJsonValue<'_, '_> {
         self.0.value()
     }
@@ -103,6 +110,40 @@ pub enum RaftNodeCommand {
         id: raftbare::NodeId,
         addr: std::net::SocketAddr,
     },
+}
+
+impl nojson::DisplayJson for RaftNodeCommand {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        match self {
+            RaftNodeCommand::AddNode { id, addr } => f.object(|f| {
+                f.member("type", "AddNode")?;
+                f.member("id", id.get())?;
+                f.member("addr", addr)
+            }),
+        }
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let ty = value
+            .to_member("type")?
+            .required()?
+            .to_unquoted_string_str()?;
+        match ty.as_ref() {
+            "AddNode" => {
+                let id = value.to_member("id")?.required()?.try_into()?;
+                let addr = value.to_member("addr")?.required()?.try_into()?;
+                Ok(RaftNodeCommand::AddNode {
+                    id: raftbare::NodeId::new(id),
+                    addr,
+                })
+            }
+            ty => Err(value.invalid(format!("unknown command type: {ty}"))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
