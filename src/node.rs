@@ -36,7 +36,7 @@ impl RaftNode {
         true
     }
 
-    pub fn propose(&mut self, command: &RaftNodeCommand) -> ProposalId {
+    pub fn add_node(&mut self, id: raftbare::NodeId, addr: std::net::SocketAddr) -> ProposalId {
         let proposal_id = ProposalId {
             node_id: self.inner.id(),
             instance_id: self.instance_id,
@@ -57,6 +57,12 @@ impl RaftNode {
         }
 
         let position = self.inner.propose_command();
+
+        let command = RaftNodeCommand::AddNode {
+            proposal_id,
+            id,
+            addr,
+        };
         let value = JsonLineValue::new_internal(command);
         self.recent_commands.insert(position, value);
 
