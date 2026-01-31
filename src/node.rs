@@ -210,13 +210,26 @@ mod tests {
 
     #[test]
     fn init_cluster() {
-        let mut node = RaftNode::new(id(0), ([127, 0, 0, 1], 9000).into(), 0);
+        let mut node = RaftNode::new(id(0), addr(9000), 0);
         assert!(node.init_cluster());
         assert!(!node.init_cluster());
         assert_eq!(node.next_action(), None);
     }
 
+    #[test]
+    fn propose_add_node() {
+        let mut node = RaftNode::new(id(0), addr(9000), 0);
+        assert!(node.init_cluster());
+
+        let proposal_id = node.propose_add_node(id(1), addr(9001));
+        assert_eq!(node.next_action(), None);
+    }
+
     fn id(n: u64) -> raftbare::NodeId {
         raftbare::NodeId::new(n)
+    }
+
+    fn addr(port: u16) -> std::net::SocketAddr {
+        std::net::SocketAddr::from(([127, 0, 0, 1], port))
     }
 }
