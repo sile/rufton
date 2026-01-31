@@ -23,7 +23,7 @@ impl RaftNode {
     }
 
     pub fn init_cluster(&mut self) -> bool {
-        if !self.is_initialized() {
+        if self.is_initialized() {
             return false;
         }
 
@@ -49,7 +49,7 @@ impl RaftNode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeAction {
     InitMachine,
 }
@@ -61,4 +61,19 @@ pub struct RaftNodeStateMachine {
 
 fn increment_node_id(id: raftbare::NodeId) -> raftbare::NodeId {
     raftbare::NodeId::new(id.get() + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_cluster() {
+        let mut node = RaftNode::new();
+        assert!(node.init_cluster());
+        assert!(!node.init_cluster());
+
+        assert_eq!(node.next_action(), Some(RaftNodeAction::InitMachine));
+        assert_eq!(node.next_action(), None);
+    }
 }
