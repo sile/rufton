@@ -8,7 +8,6 @@ pub struct RaftNode {
 }
 
 impl RaftNode {
-
     pub fn new() -> Self {
         Self {
             inner: raftbare::Node::start(UNINIT_NODE_ID),
@@ -19,8 +18,12 @@ impl RaftNode {
         }
     }
 
+    fn is_initialized(&self) -> bool {
+        self.inner.id() != UNINIT_NODE_ID
+    }
+
     pub fn init_cluster(&mut self) -> bool {
-        if self.inner.id() != UNINIT_NODE_ID {
+        if !self.is_initialized() {
             return false;
         }
 
@@ -33,13 +36,15 @@ impl RaftNode {
     }
 
     fn push_action(&mut self, action: RaftNodeAction) {
-        for inner_action in self.inner.actions_mut() {
-            todo!("convert: {inner_action:?}");
-        }
         self.action_queue.push_back(action);
     }
 
     pub fn next_action(&mut self) -> Option<RaftNodeAction> {
+        if self.is_initialized() {
+            for inner_action in self.inner.actions_mut() {
+                todo!("convert: {inner_action:?}");
+            }
+        }
         self.action_queue.pop_front()
     }
 }
