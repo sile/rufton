@@ -86,6 +86,25 @@ pub struct ProposalId {
     local_seqno: u64,
 }
 
+impl nojson::DisplayJson for ProposalId {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        [self.node_id.get(), self.instance_id, self.local_seqno].fmt(f)
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for ProposalId {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let [node_id, instance_id, local_seqno] = value.try_into()?;
+        Ok(ProposalId {
+            node_id: raftbare::NodeId::new(node_id),
+            instance_id,
+            local_seqno,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
 
