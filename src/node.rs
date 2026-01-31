@@ -36,7 +36,11 @@ impl RaftNode {
         true
     }
 
-    pub fn add_node(&mut self, id: raftbare::NodeId, addr: std::net::SocketAddr) -> ProposalId {
+    pub fn propose_add_node(
+        &mut self,
+        id: raftbare::NodeId,
+        addr: std::net::SocketAddr,
+    ) -> ProposalId {
         let proposal_id = ProposalId {
             node_id: self.inner.id(),
             instance_id: self.instance_id,
@@ -45,7 +49,7 @@ impl RaftNode {
         self.local_command_seqno += 1;
 
         if !self.initialized {
-            self.push_action(RaftNodeAction::Rejected {
+            self.push_action(RaftNodeAction::ReplyErr {
                 proposal_id,
                 reason: "cluster has not been initialized".to_owned(),
             });
@@ -186,12 +190,13 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeAction {
     InitMachine, // TODO: remove
-    Commited {
+    ReplyOk {
         proposal_id: ProposalId,
-        result: JsonLineValue,
+
+        // None means "committed but the result is unknown (e.g. the commit position was skipped by snapshot)
+        result: Option<JsonLineValue>,
     },
-    // TODO: add a variant for "committed but the result is unknown (e.g. the commit position was skipped by snapshot)
-    Rejected {
+    ReplyErr {
         proposal_id: ProposalId,
         reason: String,
     },
