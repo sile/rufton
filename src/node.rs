@@ -31,8 +31,6 @@ impl RaftNode {
         }
 
         self.initialized = true;
-        self.push_action(RaftNodeAction::InitMachine);
-
         true
     }
 
@@ -189,7 +187,6 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeAction {
-    InitMachine, // TODO: remove
     ReplyOk {
         proposal_id: ProposalId,
 
@@ -216,8 +213,6 @@ mod tests {
         let mut node = RaftNode::new(id(0), ([127, 0, 0, 1], 9000).into(), 0);
         assert!(node.init_cluster());
         assert!(!node.init_cluster());
-
-        assert_eq!(node.next_action(), Some(RaftNodeAction::InitMachine));
         assert_eq!(node.next_action(), None);
     }
 
