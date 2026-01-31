@@ -3,7 +3,6 @@ pub struct RaftNode {
     pub inner: raftbare::Node,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<RaftNodeAction>,
-    pub proposal_result_queue: std::collections::VecDeque<ProposalResult>,
     pub initialized: bool,
     pub instance_id: u64,
     pub local_command_seqno: u64,
@@ -17,7 +16,6 @@ impl RaftNode {
                 node_addrs: [(id, addr)].into_iter().collect(),
             },
             action_queue: std::collections::VecDeque::new(),
-            proposal_result_queue: std::collections::VecDeque::new(),
             initialized: false,
             instance_id,
             local_command_seqno: 0,
@@ -44,6 +42,10 @@ impl RaftNode {
         self.local_command_seqno += 1;
 
         if !self.initialized {
+            self.push_action(RaftNodeAction::Rejected {
+                proposal_id,
+                reason: "cluster has not been initialized".to_owned(),
+            });
             return proposal_id;
         }
 
@@ -85,19 +87,13 @@ pub enum RaftNodeCommand {
     },
 }
 
-pub type ProposalResult = Result<(), ProposalRejected>;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProposalRejected {
-    AddNode {
-        id: raftbare::NodeId,
-        addr: std::net::SocketAddr,
-    },
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeAction {
     InitMachine, // TODO: remove
+    Rejected {
+        proposal_id: ProposalId,
+        reason: String,
+    },
 }
 
 #[derive(Debug)]
