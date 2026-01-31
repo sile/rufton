@@ -35,15 +35,25 @@ impl RaftNode {
         true
     }
 
+    pub fn add_node(&mut self) -> bool {
+        if !self.is_initialized() {
+            return false;
+        }
+
+        todo!()
+    }
+
     fn push_action(&mut self, action: RaftNodeAction) {
         self.action_queue.push_back(action);
     }
 
     pub fn next_action(&mut self) -> Option<RaftNodeAction> {
-        if self.is_initialized() {
-            for inner_action in self.inner.actions_mut() {
-                todo!("convert: {inner_action:?}");
-            }
+        if !self.is_initialized() {
+            return None;
+        }
+
+        for inner_action in self.inner.actions_mut() {
+            todo!("convert: {inner_action:?}");
         }
         self.action_queue.pop_front()
     }
