@@ -2,14 +2,16 @@ const UNINIT_NODE_ID: raftbare::NodeId = raftbare::NodeId::new(0);
 
 #[derive(Debug)]
 pub struct RaftNode {
+    pub addr: std::net::SocketAddr,
     pub inner: raftbare::Node,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<RaftNodeAction>,
 }
 
 impl RaftNode {
-    pub fn new() -> Self {
+    pub fn new(addr: std::net::SocketAddr) -> Self {
         Self {
+            addr,
             inner: raftbare::Node::start(UNINIT_NODE_ID),
             machine: RaftNodeStateMachine {
                 next_node_id: increment_node_id(UNINIT_NODE_ID),
@@ -79,7 +81,7 @@ mod tests {
 
     #[test]
     fn init_cluster() {
-        let mut node = RaftNode::new();
+        let mut node = RaftNode::new(([127, 0, 0, 1], 9000).into());
         assert!(node.init_cluster());
         assert!(!node.init_cluster());
 
