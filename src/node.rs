@@ -3,6 +3,7 @@ pub struct RaftNode {
     pub inner: raftbare::Node,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<RaftNodeAction>,
+    pub proposal_result_queue: std::collections::VecDeque<ProposalResult>,
     pub initialized: bool,
     pub instance_id: u64,
     pub local_command_seqno: u64,
@@ -16,6 +17,7 @@ impl RaftNode {
                 node_addrs: [(id, addr)].into_iter().collect(),
             },
             action_queue: std::collections::VecDeque::new(),
+            proposal_result_queue: std::collections::VecDeque::new(),
             initialized: false,
             instance_id,
             local_command_seqno: 0,
@@ -33,17 +35,21 @@ impl RaftNode {
         true
     }
 
-    pub fn propose(&mut self, command: RaftNodeCommand) -> bool {
-        if !self.initialized {
-            return false;
-        }
-
+    pub fn propose(&mut self, command: RaftNodeCommand) -> ProposalId {
         let proposal_id = ProposalId {
             node_id: self.inner.id(),
             instance_id: self.instance_id,
             local_seqno: self.local_command_seqno,
         };
         self.local_command_seqno += 1;
+
+        if !self.initialized {
+            return proposal_id;
+        }
+
+        if !self.inner.role().is_leader() {
+            todo!()
+        }
 
         todo!()
     }
@@ -73,6 +79,16 @@ pub struct ProposalId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeCommand {
+    AddNode {
+        id: raftbare::NodeId,
+        addr: std::net::SocketAddr,
+    },
+}
+
+pub type ProposalResult = Result<(), ProposalRejected>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProposalRejected {
     AddNode {
         id: raftbare::NodeId,
         addr: std::net::SocketAddr,
