@@ -36,7 +36,7 @@ impl RaftNode {
         true
     }
 
-    pub fn propose(&mut self, command: RaftNodeCommand) -> ProposalId {
+    pub fn propose(&mut self, command: &RaftNodeCommand) -> ProposalId {
         let proposal_id = ProposalId {
             node_id: self.inner.id(),
             instance_id: self.instance_id,
@@ -56,8 +56,11 @@ impl RaftNode {
             todo!()
         }
 
-        let log_pos = self.inner.propose_command();
-        todo!()
+        let position = self.inner.propose_command();
+        let value = JsonLineValue::new_internal(command);
+        self.recent_commands.insert(position, value);
+
+        proposal_id
     }
 
     fn push_action(&mut self, action: RaftNodeAction) {
@@ -87,6 +90,7 @@ pub struct ProposalId {
 pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
 
 impl JsonLineValue {
+    // Assumes the input does not include newlines
     fn new_internal<T: nojson::DisplayJson>(v: T) -> Self {
         let line = nojson::Json(v).to_string();
         let json = nojson::RawJsonOwned::parse(line).expect("infallibe");
