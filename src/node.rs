@@ -80,6 +80,15 @@ pub struct ProposalId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
+
+impl nojson::DisplayJson for JsonLineValue {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        writeln!(f.inner_mut(), "{}", self.0.text())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeCommand {
     AddNode {
         id: raftbare::NodeId,
