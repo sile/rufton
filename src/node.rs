@@ -82,6 +82,12 @@ pub struct ProposalId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
 
+impl JsonLineValue {
+    pub fn get(&self) -> nojson::RawJsonValue<'_, '_> {
+        self.0.value()
+    }
+}
+
 impl nojson::DisplayJson for JsonLineValue {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         writeln!(f.inner_mut(), "{}", self.0.text())
@@ -99,6 +105,10 @@ pub enum RaftNodeCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeAction {
     InitMachine, // TODO: remove
+    Commited {
+        proposal_id: ProposalId,
+        result: JsonLineValue,
+    },
     Rejected {
         proposal_id: ProposalId,
         reason: String,
