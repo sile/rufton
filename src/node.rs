@@ -3,6 +3,7 @@ pub struct RaftNode {
     pub inner: raftbare::Node,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<RaftNodeAction>,
+    pub recent_commands: std::collections::BTreeMap<raftbare::LogPosition, JsonLineValue>,
     pub initialized: bool,
     pub instance_id: u64,
     pub local_command_seqno: u64,
@@ -16,6 +17,7 @@ impl RaftNode {
                 node_addrs: [(id, addr)].into_iter().collect(),
             },
             action_queue: std::collections::VecDeque::new(),
+            recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
             instance_id,
             local_command_seqno: 0,
@@ -53,6 +55,7 @@ impl RaftNode {
             todo!()
         }
 
+        let log_pos = self.inner.propose_command();
         todo!()
     }
 
