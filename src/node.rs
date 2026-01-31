@@ -130,6 +130,7 @@ impl nojson::DisplayJson for JsonLineValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeCommand {
     AddNode {
+        proposal_id: ProposalId,
         id: raftbare::NodeId,
         addr: std::net::SocketAddr,
     },
@@ -138,8 +139,9 @@ pub enum RaftNodeCommand {
 impl nojson::DisplayJson for RaftNodeCommand {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
-            RaftNodeCommand::AddNode { id, addr } => f.object(|f| {
+            RaftNodeCommand::AddNode { proposal_id, id, addr } => f.object(|f| {
                 f.member("type", "AddNode")?;
+                f.member("proposal_id", proposal_id)?;
                 f.member("id", id.get())?;
                 f.member("addr", addr)
             }),
@@ -157,9 +159,11 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
             .to_unquoted_string_str()?;
         match ty.as_ref() {
             "AddNode" => {
+                let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 let id = value.to_member("id")?.required()?.try_into()?;
                 let addr = value.to_member("addr")?.required()?.try_into()?;
                 Ok(RaftNodeCommand::AddNode {
+                    proposal_id,
                     id: raftbare::NodeId::new(id),
                     addr,
                 })
