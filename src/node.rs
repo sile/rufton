@@ -139,7 +139,11 @@ pub enum RaftNodeCommand {
 impl nojson::DisplayJson for RaftNodeCommand {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
-            RaftNodeCommand::AddNode { proposal_id, id, addr } => f.object(|f| {
+            RaftNodeCommand::AddNode {
+                proposal_id,
+                id,
+                addr,
+            } => f.object(|f| {
                 f.member("type", "AddNode")?;
                 f.member("proposal_id", proposal_id)?;
                 f.member("id", id.get())?;
@@ -180,6 +184,7 @@ pub enum RaftNodeAction {
         proposal_id: ProposalId,
         result: JsonLineValue,
     },
+    // TODO: add a variant for "committed but the result is unknown (e.g. the commit position was skipped by snapshot)
     Rejected {
         proposal_id: ProposalId,
         reason: String,
