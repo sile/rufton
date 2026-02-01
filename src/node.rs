@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub struct RaftNode {
     pub inner: raftbare::Node,
+    pub addr: std::net::SocketAddr,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<RaftNodeAction>,
     pub recent_commands: std::collections::BTreeMap<raftbare::LogPosition, JsonLineValue>,
@@ -13,9 +14,8 @@ impl RaftNode {
     pub fn new(id: raftbare::NodeId, addr: std::net::SocketAddr, instance_id: u64) -> Self {
         Self {
             inner: raftbare::Node::start(id),
-            machine: RaftNodeStateMachine {
-                node_addrs: [(id, addr)].into_iter().collect(),
-            },
+            addr,
+            machine: RaftNodeStateMachine::default(),
             action_queue: std::collections::VecDeque::new(),
 
             recent_commands: std::collections::BTreeMap::new(),
@@ -32,9 +32,9 @@ impl RaftNode {
 
         let initial_members = [self.inner.id()];
         self.inner.create_cluster(&initial_members);
+        self.propose_add_node(self.inner.id(), self.addr)
+            .expect("infallible");
         self.initialized = true;
-
-        assert!(self.inner.role().is_leader());
 
         true
     }
@@ -339,7 +339,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RaftNodeStateMachine {
     pub node_addrs: std::collections::BTreeMap<raftbare::NodeId, std::net::SocketAddr>,
 }
