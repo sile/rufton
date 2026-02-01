@@ -87,7 +87,29 @@ impl RaftNode {
         }
 
         for inner_action in self.inner.actions_mut() {
-            todo!("convert: {inner_action:?}");
+            match inner_action {
+                raftbare::Action::SetElectionTimeout => {
+                    todo!("SetElectionTimeout action")
+                }
+                raftbare::Action::SaveCurrentTerm => {
+                    todo!("SaveCurrentTerm action")
+                }
+                raftbare::Action::SaveVotedFor => {
+                    todo!("SaveVotedFor action")
+                }
+                raftbare::Action::BroadcastMessage(_) => {
+                    todo!("BroadcastMessage action")
+                }
+                raftbare::Action::AppendLogEntries(_) => {
+                    todo!("AppendLogEntries action")
+                }
+                raftbare::Action::SendMessage(_, _) => {
+                    todo!("SendMessage action")
+                }
+                raftbare::Action::InstallSnapshot(_) => {
+                    todo!("InstallSnapshot action")
+                }
+            }
         }
         self.action_queue.pop_front()
     }
@@ -98,7 +120,7 @@ pub struct NotInitialized;
 
 impl std::fmt::Display for NotInitialized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RaftNode is not initialized")
+        write!(f, "Raft node is not initialized")
     }
 }
 
@@ -238,7 +260,7 @@ mod tests {
         let mut node = RaftNode::new(node_id(0), addr(9000), 0);
         assert!(node.init_cluster());
 
-        let proposal_id = node.propose_add_node(node_id(1), addr(9001));
+        let proposal_id = node.propose_add_node(node_id(1), addr(9001)).expect("ok");
         assert_eq!(node.next_action(), None);
     }
 
