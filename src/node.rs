@@ -124,8 +124,12 @@ impl RaftNode {
         }
 
         for i in self.applied_index.get()..self.inner.commit_index().get() {
-            let index = raftbare::LogIndex::new(i);
-            let command = self.recent_commands.get(&index).cloned().expect("bug");
+            let index = raftbare::LogIndex::new(i + 1);
+
+            let Some(command) = self.recent_commands.get(&index).cloned() else {
+                // Igores non-command entries as they are handled by the raftbare layer
+                continue;
+            };
             let proposal_id = command.get_member("proposal_id").expect("bug");
 
             // TODO: Remove String conversion
@@ -140,6 +144,7 @@ impl RaftNode {
                 command,
             });
         }
+        self.applied_index = self.inner.commit_index();
 
         self.action_queue.pop_front()
     }
