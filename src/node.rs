@@ -227,6 +227,50 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeAction {
     SetTimeout(raftbare::Role),
+    AppendStorageEntry(JsonLineValue),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageEntry {
+    Term(raftbare::Term),
+    VotedFor(Option<raftbare::NodeId>),
+}
+
+impl nojson::DisplayJson for StorageEntry {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        match self {
+            StorageEntry::Term(term) => f.object(|f| {
+                f.member("type", "Term")?;
+                f.member("term", term.get())
+            }),
+            StorageEntry::VotedFor(node_id) => f.object(|f| {
+                f.member("type", "VotedFor")?;
+                f.member("node_id", node_id.map(|id| id.get()))
+            }),
+        }
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let ty = value
+            .to_member("type")?
+            .required()?
+            .to_unquoted_string_str()?;
+        match ty.as_ref() {
+            "Term" => {
+                let term = value.to_member("term")?.required()?.try_into()?;
+                Ok(StorageEntry::Term(raftbare::Term::new(term)))
+            }
+            "VotedFor" => {
+                let node_id: Option<u64> = value.to_member("node_id")?.try_into()?;
+                Ok(StorageEntry::VotedFor(node_id.map(raftbare::NodeId::new)))
+            }
+            ty => Err(value.invalid(format!("unknown storage entry type: {ty}"))),
+        }
+    }
 }
 
 #[derive(Debug)]
