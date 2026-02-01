@@ -170,6 +170,7 @@ impl RaftNode {
         entries: &raftbare::LogEntries,
     ) -> std::fmt::Result {
         f.object(|f| {
+            f.member("type", "LogEntries")?;
             self.fmt_log_position_members(f, entries.prev_position())?;
             f.member(
                 "entries",
