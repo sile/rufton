@@ -8,6 +8,7 @@ pub struct RaftNode {
     pub initialized: bool,
     pub instance_id: u64,
     pub local_command_seqno: u64,
+    pub applied_index: raftbare::LogIndex,
 }
 
 impl RaftNode {
@@ -17,11 +18,11 @@ impl RaftNode {
             addr,
             machine: RaftNodeStateMachine::default(),
             action_queue: std::collections::VecDeque::new(),
-
             recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
             instance_id,
             local_command_seqno: 0,
+            applied_index: raftbare::LogIndex::ZERO,
         }
     }
 
@@ -121,6 +122,12 @@ impl RaftNode {
                 }
             }
         }
+
+        for i in self.applied_index.get()..self.inner.commit_index().get() {
+            let commit_index = raftbare::LogIndex::new(i);
+            todo!()
+        }
+
         self.action_queue.pop_front()
     }
 
@@ -300,7 +307,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
 pub enum RaftNodeAction {
     SetTimeout(raftbare::Role),
     AppendStorageEntry(JsonLineValue),
-    Command {
+    Commit {
         proposal_id: ProposalId,
         log_position: raftbare::LogPosition,
         command: Option<JsonLineValue>,
