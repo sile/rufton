@@ -300,6 +300,11 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
 pub enum RaftNodeAction {
     SetTimeout(raftbare::Role),
     AppendStorageEntry(JsonLineValue),
+    Command {
+        proposal_id: ProposalId,
+        log_position: raftbare::LogPosition,
+        command: Option<JsonLineValue>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -375,12 +380,15 @@ mod tests {
             Some(RaftNodeAction::AppendStorageEntry(_))
         ));
         assert_eq!(node.next_action(), None);
+
+        //
     }
 
     #[test]
     fn propose_add_node() {
         let mut node = RaftNode::new(node_id(0), addr(9000), 0);
         assert!(node.init_cluster());
+        while node.next_action().is_some() {}
 
         let _proposal_id = node.propose_add_node(node_id(1), addr(9001)).expect("ok");
         // assert_eq!(node.next_action(), None);
