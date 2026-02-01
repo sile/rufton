@@ -39,6 +39,11 @@ impl RaftNode {
         true
     }
 
+    // NOTE: Propsals should be treated as timeout by clients in the following cases:
+    // - Taking too long time (simple timeout)
+    // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
+    // - Redirected proposal was discarded by any reasons (e.g. node down, redirect limit reached)
+
     pub fn propose_add_node(
         &mut self,
         id: raftbare::NodeId,
