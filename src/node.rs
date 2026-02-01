@@ -153,7 +153,7 @@ impl RaftNode {
                     let value = JsonLineValue::new_internal(entry);
                     self.push_action(Action::AppendStorageEntry(value));
                 }
-                raftbare::Action::BroadcastMessage(_) => {
+                raftbare::Action::BroadcastMessage(message) => {
                     todo!("BroadcastMessage action")
                 }
                 raftbare::Action::AppendLogEntries(entries) => {
