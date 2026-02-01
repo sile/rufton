@@ -135,15 +135,21 @@ impl RaftNode {
     fn fmt_log_entry_members(
         &self,
         f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
-        entry:& raftbare::LogEntry,
+        entry: &raftbare::LogEntry,
     ) -> std::fmt::Result {
         match entry {
             raftbare::LogEntry::Term(term) => {
                 f.member("type", "Term")?;
                 f.member("term", term.get())
             }
-            raftbare::LogEntry::ClusterConfig(_) => f.member("type", "ClusterConfig"),
-            raftbare::LogEntry::Command => f.member("type", "Command"),
+            raftbare::LogEntry::ClusterConfig(_) => {
+                f.member("type", "ClusterConfig")?;
+                todo!()
+            }
+            raftbare::LogEntry::Command => {
+                f.member("type", "Command")?;
+                todo!()
+            }
         }
     }
 
