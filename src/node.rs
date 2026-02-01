@@ -1,10 +1,12 @@
+pub type RecentCommands = std::collections::BTreeMap<raftbare::LogIndex, JsonLineValue>;
+
 #[derive(Debug)]
 pub struct RaftNode {
     pub inner: raftbare::Node,
     pub addr: std::net::SocketAddr,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<RaftNodeAction>,
-    pub recent_commands: std::collections::BTreeMap<raftbare::LogIndex, JsonLineValue>,
+    pub recent_commands: RecentCommands,
     pub initialized: bool,
     pub instance_id: u64,
     pub local_command_seqno: u64,
@@ -156,7 +158,7 @@ impl RaftNode {
                 }
                 raftbare::Action::AppendLogEntries(entries) => {
                     let value = JsonLineValue::new_internal(nojson::json(|f| {
-                        self.fmt_log_entries_json(f, &entries)
+                        crate::conv::fmt_log_entries(f, &entries, &self.recent_commands)
                     }));
                     self.push_action(RaftNodeAction::AppendStorageEntry(value));
                 }
@@ -211,68 +213,6 @@ impl RaftNode {
         self.dirty_members = true;
 
         Ok(())
-    }
-
-    fn fmt_log_position_members(
-        &self,
-        f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
-        position: raftbare::LogPosition,
-    ) -> std::fmt::Result {
-        f.member("term", position.term.get())?;
-        f.member("index", position.index.get())
-    }
-
-    fn fmt_log_entry_members(
-        &self,
-        f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
-        pos: raftbare::LogPosition,
-        entry: &raftbare::LogEntry,
-    ) -> std::fmt::Result {
-        match entry {
-            raftbare::LogEntry::Term(term) => {
-                f.member("type", "Term")?;
-                f.member("term", term.get())
-            }
-            raftbare::LogEntry::ClusterConfig(config) => {
-                // NOTE: This crate does not use non voters
-                f.member("type", "ClusterConfig")?;
-                f.member(
-                    "voters",
-                    nojson::array(|f| f.elements(config.voters.iter().map(|v| v.get()))),
-                )?;
-                f.member(
-                    "new_voters",
-                    nojson::array(|f| f.elements(config.new_voters.iter().map(|v| v.get()))),
-                )
-            }
-            raftbare::LogEntry::Command => {
-                f.member("type", "Command")?;
-                let command = self.recent_commands.get(&pos.index).expect("bug");
-                f.member("value", command)
-            }
-        }
-    }
-
-    fn fmt_log_entries_json(
-        &self,
-        f: &mut nojson::JsonFormatter<'_, '_>,
-        entries: &raftbare::LogEntries,
-    ) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("type", "LogEntries")?;
-            self.fmt_log_position_members(f, entries.prev_position())?;
-            f.member(
-                "entries",
-                nojson::array(|f| {
-                    for (pos, entry) in entries.iter_with_positions() {
-                        f.element(nojson::object(|f| {
-                            self.fmt_log_entry_members(f, pos, &entry)
-                        }))?;
-                    }
-                    Ok(())
-                }),
-            )
-        })
     }
 }
 
@@ -529,6 +469,8 @@ mod tests {
             }
         }
         assert!(found_commit, "Proposal should be committed");
+
+        while node.next_action().is_some() {}
 
         // Check that the new node was added to cluster members
         assert_eq!(node.machine.node_addrs.len(), 2);
