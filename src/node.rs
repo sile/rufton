@@ -159,7 +159,7 @@ impl RaftNode {
             raftbare::LogEntry::Command => {
                 f.member("type", "Command")?;
                 let command = self.recent_commands.get(&pos).expect("bug");
-                todo!()
+                f.member("value", command)
             }
         }
     }
