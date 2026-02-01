@@ -142,9 +142,27 @@ impl RaftNode {
                 f.member("type", "Term")?;
                 f.member("term", term.get())
             }
-            raftbare::LogEntry::ClusterConfig(_) => {
+            raftbare::LogEntry::ClusterConfig(config) => {
+                // NOTE: This crate does not use non voters
                 f.member("type", "ClusterConfig")?;
-                todo!()
+                f.member(
+                    "voters",
+                    nojson::array(|f| {
+                        for node_id in config.voters.iter() {
+                            f.element(node_id.get())?;
+                        }
+                        Ok(())
+                    }),
+                )?;
+                f.member(
+                    "new_voters",
+                    nojson::array(|f| {
+                        for node_id in config.new_voters.iter() {
+                            f.element(node_id.get())?;
+                        }
+                        Ok(())
+                    }),
+                )
             }
             raftbare::LogEntry::Command => {
                 f.member("type", "Command")?;
