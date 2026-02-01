@@ -154,7 +154,10 @@ impl RaftNode {
                     self.push_action(Action::AppendStorageEntry(value));
                 }
                 raftbare::Action::BroadcastMessage(message) => {
-                    todo!("BroadcastMessage action")
+                    let value = JsonLineValue::new_internal(nojson::json(|f| {
+                        crate::conv::fmt_message(f, &message, &self.recent_commands)
+                    }));
+                    self.push_action(Action::BroadcastMessage(value));
                 }
                 raftbare::Action::AppendLogEntries(entries) => {
                     let value = JsonLineValue::new_internal(nojson::json(|f| {
