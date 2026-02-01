@@ -295,7 +295,7 @@ pub enum Command {
         id: raftbare::NodeId,
         addr: std::net::SocketAddr,
     },
-    UserCommand {
+    Apply {
         proposal_id: ProposalId,
         command: JsonLineValue,
     },
@@ -313,6 +313,14 @@ impl nojson::DisplayJson for Command {
                 f.member("proposal_id", proposal_id)?;
                 f.member("id", id.get())?;
                 f.member("addr", addr)
+            }),
+            Command::Apply {
+                proposal_id,
+                command,
+            } => f.object(|f| {
+                f.member("type", "Apply")?;
+                f.member("proposal_id", proposal_id)?;
+                f.member("command", command)
             }),
         }
     }
@@ -335,6 +343,15 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
                     proposal_id,
                     id: raftbare::NodeId::new(id),
                     addr,
+                })
+            }
+            "Apply" => {
+                let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
+                let command_json = value.to_member("command")?.required()?;
+                let command = JsonLineValue::new_internal(command_json);
+                Ok(Command::Apply {
+                    proposal_id,
+                    command,
                 })
             }
             ty => Err(value.invalid(format!("unknown command type: {ty}"))),
