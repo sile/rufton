@@ -4,7 +4,7 @@ pub struct RaftNode {
     pub addr: std::net::SocketAddr,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<RaftNodeAction>,
-    pub recent_commands: std::collections::BTreeMap<raftbare::LogPosition, JsonLineValue>,
+    pub recent_commands: std::collections::BTreeMap<raftbare::LogIndex, JsonLineValue>,
     pub initialized: bool,
     pub instance_id: u64,
     pub local_command_seqno: u64,
@@ -74,7 +74,7 @@ impl RaftNode {
             addr,
         };
         let value = JsonLineValue::new_internal(command);
-        self.recent_commands.insert(position, value);
+        self.recent_commands.insert(position.index, value); // TODO: write why use index here (not position)
 
         Ok(proposal_id)
     }
@@ -124,8 +124,20 @@ impl RaftNode {
         }
 
         for i in self.applied_index.get()..self.inner.commit_index().get() {
-            let commit_index = raftbare::LogIndex::new(i);
-            todo!()
+            let index = raftbare::LogIndex::new(i);
+            let command = self.recent_commands.get(&index).cloned().expect("bug");
+            let proposal_id = command.get_member("proposal_id").expect("bug");
+
+            let command = match command.get_member("type").expect("bug") {
+                "AddNode" => todo!(),
+                _ => None,
+            };
+
+            self.push_action(RaftNodeAction::Commit {
+                index,
+                proposal_id,
+                command,
+            });
         }
 
         self.action_queue.pop_front()
@@ -165,7 +177,7 @@ impl RaftNode {
             }
             raftbare::LogEntry::Command => {
                 f.member("type", "Command")?;
-                let command = self.recent_commands.get(&pos).expect("bug");
+                let command = self.recent_commands.get(&pos.index).expect("bug");
                 f.member("value", command)
             }
         }
@@ -245,6 +257,13 @@ impl JsonLineValue {
     pub fn get(&self) -> nojson::RawJsonValue<'_, '_> {
         self.0.value()
     }
+
+    fn get_member<'a, T>(&'a self, name: &str) -> Result<T, nojson::JsonParseError>
+    where
+        T: TryFrom<nojson::RawJsonValue<'a, 'a>, Error = nojson::JsonParseError>,
+    {
+        self.get().to_member(name)?.required()?.try_into()
+    }
 }
 
 impl nojson::DisplayJson for JsonLineValue {
@@ -309,7 +328,7 @@ pub enum RaftNodeAction {
     AppendStorageEntry(JsonLineValue),
     Commit {
         proposal_id: ProposalId,
-        log_position: raftbare::LogPosition,
+        index: raftbare::LogIndex,
         command: Option<JsonLineValue>,
     },
 }
