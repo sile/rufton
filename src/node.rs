@@ -96,7 +96,33 @@ impl RaftNode {
             return;
         }
 
-        todo!()
+        // Get current cluster config
+        let current_config = self.inner.config();
+        let current_voters: std::collections::BTreeSet<_> =
+            current_config.voters.iter().copied().collect();
+
+        // Get voters from state machine addresses
+        let machine_voters: std::collections::BTreeSet<_> =
+            self.machine.node_addrs.keys().copied().collect();
+
+        // Calculate differences
+        let nodes_to_add: Vec<_> = machine_voters
+            .iter()
+            .filter(|id| !current_voters.contains(id))
+            .copied()
+            .collect();
+        let nodes_to_remove: Vec<_> = current_voters
+            .iter()
+            .filter(|id| !machine_voters.contains(id))
+            .copied()
+            .collect();
+
+        // If there are changes, propose new configuration
+        if !nodes_to_add.is_empty() || !nodes_to_remove.is_empty() {
+            let new_config = current_config.to_joint_consensus(&nodes_to_add, &nodes_to_remove);
+            self.inner.propose_config(new_config);
+            self.dirty_members = false;
+        }
     }
 
     pub fn next_action(&mut self) -> Option<RaftNodeAction> {
