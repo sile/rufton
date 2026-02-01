@@ -5,7 +5,7 @@ pub struct RaftNode {
     pub inner: raftbare::Node,
     pub addr: std::net::SocketAddr,
     pub machine: RaftNodeStateMachine,
-    pub action_queue: std::collections::VecDeque<RaftNodeAction>,
+    pub action_queue: std::collections::VecDeque<Action>,
     pub recent_commands: RecentCommands,
     pub initialized: bool,
     pub instance_id: u64,
@@ -83,7 +83,7 @@ impl RaftNode {
         Ok(proposal_id)
     }
 
-    fn push_action(&mut self, action: RaftNodeAction) {
+    fn push_action(&mut self, action: Action) {
         self.action_queue.push_back(action);
     }
 
@@ -129,7 +129,7 @@ impl RaftNode {
         self.dirty_members = false;
     }
 
-    pub fn next_action(&mut self) -> Option<RaftNodeAction> {
+    pub fn next_action(&mut self) -> Option<Action> {
         if !self.initialized {
             return None;
         }
@@ -139,19 +139,19 @@ impl RaftNode {
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
                 raftbare::Action::SetElectionTimeout => {
-                    self.push_action(RaftNodeAction::SetTimeout(self.inner.role()));
+                    self.push_action(Action::SetTimeout(self.inner.role()));
                 }
                 raftbare::Action::SaveCurrentTerm => {
                     let term = self.inner.current_term();
                     let entry = StorageEntry::Term(term);
                     let value = JsonLineValue::new_internal(entry);
-                    self.push_action(RaftNodeAction::AppendStorageEntry(value));
+                    self.push_action(Action::AppendStorageEntry(value));
                 }
                 raftbare::Action::SaveVotedFor => {
                     let voted_for = self.inner.voted_for();
                     let entry = StorageEntry::VotedFor(voted_for);
                     let value = JsonLineValue::new_internal(entry);
-                    self.push_action(RaftNodeAction::AppendStorageEntry(value));
+                    self.push_action(Action::AppendStorageEntry(value));
                 }
                 raftbare::Action::BroadcastMessage(_) => {
                     todo!("BroadcastMessage action")
@@ -160,7 +160,7 @@ impl RaftNode {
                     let value = JsonLineValue::new_internal(nojson::json(|f| {
                         crate::conv::fmt_log_entries(f, &entries, &self.recent_commands)
                     }));
-                    self.push_action(RaftNodeAction::AppendStorageEntry(value));
+                    self.push_action(Action::AppendStorageEntry(value));
                 }
                 raftbare::Action::SendMessage(_, _) => {
                     todo!("SendMessage action")
@@ -190,7 +190,7 @@ impl RaftNode {
                 _ => panic!("bug"),
             };
 
-            self.push_action(RaftNodeAction::Commit {
+            self.push_action(Action::Commit {
                 index,
                 proposal_id,
                 command,
@@ -354,7 +354,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RaftNodeAction {
+pub enum Action {
     SetTimeout(raftbare::Role),
     AppendStorageEntry(JsonLineValue),
     Commit {
@@ -434,12 +434,9 @@ mod tests {
         );
         assert!(matches!(
             node.next_action(),
-            Some(RaftNodeAction::AppendStorageEntry(_))
+            Some(Action::AppendStorageEntry(_))
         ));
-        assert!(matches!(
-            node.next_action(),
-            Some(RaftNodeAction::Commit { .. })
-        ));
+        assert!(matches!(node.next_action(), Some(Action::Commit { .. })));
         assert_eq!(node.next_action(), None);
 
         // Check that the initial node was added to cluster members
@@ -458,7 +455,7 @@ mod tests {
         // Loop until the proposal is committed
         let mut found_commit = false;
         while let Some(action) = node.next_action() {
-            if let RaftNodeAction::Commit {
+            if let Action::Commit {
                 proposal_id: commit_proposal_id,
                 ..
             } = action
@@ -477,14 +474,14 @@ mod tests {
         assert_eq!(node.machine.node_addrs.get(&node_id(1)), Some(&addr(9001)));
     }
 
-    fn append_storage_entry_action(json: &str) -> RaftNodeAction {
+    fn append_storage_entry_action(json: &str) -> Action {
         let raw_json = nojson::RawJsonOwned::parse(json.to_string()).expect("invalid json");
         let value = JsonLineValue(std::sync::Arc::new(raw_json));
-        RaftNodeAction::AppendStorageEntry(value)
+        Action::AppendStorageEntry(value)
     }
 
-    fn set_leader_timeout_action() -> RaftNodeAction {
-        RaftNodeAction::SetTimeout(raftbare::Role::Leader)
+    fn set_leader_timeout_action() -> Action {
+        Action::SetTimeout(raftbare::Role::Leader)
     }
 
     fn node_id(n: u64) -> raftbare::NodeId {
