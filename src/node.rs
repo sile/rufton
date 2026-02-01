@@ -32,9 +32,10 @@ impl RaftNode {
 
         let initial_members = [self.inner.id()];
         self.inner.create_cluster(&initial_members);
+        self.initialized = true;
+
         self.propose_add_node(self.inner.id(), self.addr)
             .expect("infallible");
-        self.initialized = true;
 
         true
     }
@@ -135,6 +136,7 @@ impl RaftNode {
     fn fmt_log_entry_members(
         &self,
         f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
+        pos: raftbare::LogPosition,
         entry: &raftbare::LogEntry,
     ) -> std::fmt::Result {
         match entry {
@@ -156,6 +158,7 @@ impl RaftNode {
             }
             raftbare::LogEntry::Command => {
                 f.member("type", "Command")?;
+                let command = self.recent_commands.get(&pos).expect("bug");
                 todo!()
             }
         }
@@ -171,8 +174,10 @@ impl RaftNode {
             f.member(
                 "entries",
                 nojson::array(|f| {
-                    for entry in entries.iter() {
-                        f.element(nojson::object(|f| self.fmt_log_entry_members(f, &entry)))?;
+                    for (pos, entry) in entries.iter_with_positions() {
+                        f.element(nojson::object(|f| {
+                            self.fmt_log_entry_members(f, pos, &entry)
+                        }))?;
                     }
                     Ok(())
                 }),
