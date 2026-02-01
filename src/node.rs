@@ -106,8 +106,11 @@ impl RaftNode {
                 raftbare::Action::BroadcastMessage(_) => {
                     todo!("BroadcastMessage action")
                 }
-                raftbare::Action::AppendLogEntries(_) => {
-                    todo!("AppendLogEntries action")
+                raftbare::Action::AppendLogEntries(entries) => {
+                   let value = JsonLineValue::new_internal(nojson::json(|f| {
+                        self.fmt_log_entries_json(f, &entries)
+                    }));
+                    self.push_action(RaftNodeAction::AppendStorageEntry(value));
                 }
                 raftbare::Action::SendMessage(_, _) => {
                     todo!("SendMessage action")
@@ -118,6 +121,42 @@ impl RaftNode {
             }
         }
         self.action_queue.pop_front()
+    }
+
+    fn fmt_log_entries_json(
+        &self,
+        f: &mut nojson::JsonFormatter<'_, '_>,
+        entries: &raftbare::LogEntries,
+    ) -> std::fmt::Result {
+        Ok(())
+        /*f.array(|f| {
+            for (position, entry) in entries.iter_with_positions() {
+                f.element(nojson::json(|f| {
+                    f.object(|f| {
+                        f.member("term", position.term.get())?;
+                        f.member("index", position.index.get())?;
+                        f.member(
+                            "entry",
+                            match entry {
+                                raftbare::LogEntry::Term(term) => nojson::json(|f| {
+                                    f.object(|f| {
+                                        f.member("type", "Term")?;
+                                        f.member("term", term.get())
+                                    })
+                                }),
+                                raftbare::LogEntry::ClusterConfig(_) => nojson::json(|f| {
+                                    f.object(|f| f.member("type", "ClusterConfig"))
+                                }),
+                                raftbare::LogEntry::Command => {
+                                    nojson::json(|f| f.object(|f| f.member("type", "Command")))
+                                }
+                            },
+                        )
+                    })
+                }))?;
+            }
+            Ok(())
+        })*/
     }
 }
 
