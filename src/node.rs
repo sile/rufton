@@ -129,6 +129,21 @@ impl RaftNode {
         self.dirty_members = false;
     }
 
+    pub fn handle_message(&mut self, message: &JsonLineValue) -> bool {
+        // TODO: Remove String conversion
+        let Ok(ty) = message.get_member::<String>("type") else {
+            return false;
+        };
+
+        // TODO:
+        // - Convert message to raftbare message
+        // - update recent commands if needs (check inner's log)
+
+        match ty.as_str() {
+            _ => false,
+        }
+    }
+
     pub fn next_action(&mut self) -> Option<Action> {
         if !self.initialized {
             return None;
