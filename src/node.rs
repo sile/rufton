@@ -421,6 +421,10 @@ mod tests {
             node.next_action(),
             Some(RaftNodeAction::AppendStorageEntry(_))
         ));
+        assert!(matches!(
+            node.next_action(),
+            Some(RaftNodeAction::Commit { .. })
+        ));
         assert_eq!(node.next_action(), None);
 
         //
