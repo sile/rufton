@@ -357,6 +357,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
 pub enum Action {
     SetTimeout(raftbare::Role),
     AppendStorageEntry(JsonLineValue),
+    BroadcastMessage(JsonLineValue),
     Commit {
         proposal_id: ProposalId,
         index: raftbare::LogIndex,
