@@ -128,7 +128,8 @@ impl RaftNode {
             let command = self.recent_commands.get(&index).cloned().expect("bug");
             let proposal_id = command.get_member("proposal_id").expect("bug");
 
-            let command = match command.get_member("type").expect("bug") {
+            // TODO: Remove String conversion
+            let command = match command.get_member::<String>("type").expect("bug").as_str() {
                 "AddNode" => todo!(),
                 _ => None,
             };
