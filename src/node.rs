@@ -68,7 +68,7 @@ impl RaftNode {
 
         let position = self.inner.propose_command();
 
-        let command = RaftNodeCommand::AddNode {
+        let command = Command::AddNode {
             proposal_id,
             id,
             addr,
@@ -289,18 +289,22 @@ impl nojson::DisplayJson for JsonLineValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RaftNodeCommand {
+pub enum Command {
     AddNode {
         proposal_id: ProposalId,
         id: raftbare::NodeId,
         addr: std::net::SocketAddr,
     },
+    UserCommand {
+        proposal_id: ProposalId,
+        command: JsonLineValue,
+    },
 }
 
-impl nojson::DisplayJson for RaftNodeCommand {
+impl nojson::DisplayJson for Command {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
-            RaftNodeCommand::AddNode {
+            Command::AddNode {
                 proposal_id,
                 id,
                 addr,
@@ -314,7 +318,7 @@ impl nojson::DisplayJson for RaftNodeCommand {
     }
 }
 
-impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand {
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
     type Error = nojson::JsonParseError;
 
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
@@ -327,7 +331,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 let id = value.to_member("id")?.required()?.try_into()?;
                 let addr = value.to_member("addr")?.required()?.try_into()?;
-                Ok(RaftNodeCommand::AddNode {
+                Ok(Command::AddNode {
                     proposal_id,
                     id: raftbare::NodeId::new(id),
                     addr,
@@ -453,7 +457,6 @@ mod tests {
                 break;
             }
         }
-
         assert!(found_commit, "Proposal should be committed");
 
         // Check that the new node was added to cluster members
