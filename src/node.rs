@@ -438,8 +438,27 @@ mod tests {
         assert!(node.init_cluster());
         while node.next_action().is_some() {}
 
-        let _proposal_id = node.propose_add_node(node_id(1), addr(9001)).expect("ok");
-        // assert_eq!(node.next_action(), None);
+        let proposal_id = node.propose_add_node(node_id(1), addr(9001)).expect("ok");
+
+        // Loop until the proposal is committed
+        let mut found_commit = false;
+        while let Some(action) = node.next_action() {
+            if let RaftNodeAction::Commit {
+                proposal_id: commit_proposal_id,
+                ..
+            } = action
+                && commit_proposal_id == proposal_id
+            {
+                found_commit = true;
+                break;
+            }
+        }
+
+        assert!(found_commit, "Proposal should be committed");
+
+        // Check that the new node was added to cluster members
+        assert_eq!(node.machine.node_addrs.len(), 2);
+        assert_eq!(node.machine.node_addrs.get(&node_id(1)), Some(&addr(9001)));
     }
 
     fn append_storage_entry_action(json: &str) -> RaftNodeAction {
