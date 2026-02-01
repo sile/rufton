@@ -120,9 +120,11 @@ impl RaftNode {
         // If there are changes, propose new configuration
         if !nodes_to_add.is_empty() || !nodes_to_remove.is_empty() {
             let new_config = current_config.to_joint_consensus(&nodes_to_add, &nodes_to_remove);
-            self.inner.propose_config(new_config);
-            self.dirty_members = false;
+            let pos = self.inner.propose_config(new_config);
+            assert_ne!(pos, raftbare::LogPosition::INVALID);
         }
+
+        self.dirty_members = false;
     }
 
     pub fn next_action(&mut self) -> Option<RaftNodeAction> {
