@@ -48,21 +48,17 @@ impl RaftNode {
         &mut self,
         id: raftbare::NodeId,
         addr: std::net::SocketAddr,
-    ) -> ProposalId {
+    ) -> Result<ProposalId, NotInitialized> {
+        if !self.initialized {
+            return Err(NotInitialized);
+        }
+
         let proposal_id = ProposalId {
             node_id: self.inner.id(),
             instance_id: self.instance_id,
             local_seqno: self.local_command_seqno,
         };
         self.local_command_seqno += 1;
-
-        if !self.initialized {
-            self.push_action(RaftNodeAction::ReplyErr {
-                proposal_id,
-                reason: "cluster has not been initialized".to_owned(),
-            });
-            return proposal_id;
-        }
 
         if !self.inner.role().is_leader() {
             todo!("{:?}", self.inner.role())
@@ -78,7 +74,7 @@ impl RaftNode {
         let value = JsonLineValue::new_internal(command);
         self.recent_commands.insert(position, value);
 
-        proposal_id
+        Ok(proposal_id)
     }
 
     fn push_action(&mut self, action: RaftNodeAction) {
@@ -96,6 +92,17 @@ impl RaftNode {
         self.action_queue.pop_front()
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotInitialized;
+
+impl std::fmt::Display for NotInitialized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RaftNode is not initialized")
+    }
+}
+
+impl std::error::Error for NotInitialized {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProposalId {
