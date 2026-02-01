@@ -134,8 +134,11 @@ impl RaftNode {
 
             // TODO: Remove String conversion
             let command = match command.get_member::<String>("type").expect("bug").as_str() {
-                "AddNode" => todo!(),
-                _ => None,
+                "AddNode" => {
+                    self.handle_add_node(&command).expect("bug");
+                    None
+                }
+                _ => Some(command),
             };
 
             self.push_action(RaftNodeAction::Commit {
@@ -147,6 +150,13 @@ impl RaftNode {
         self.applied_index = self.inner.commit_index();
 
         self.action_queue.pop_front()
+    }
+
+    fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
+        let id = raftbare::NodeId::new(command.get_member("id")?);
+        let addr = command.get_member("addr")?;
+        self.machine.node_addrs.insert(id, addr);
+        Ok(())
     }
 
     fn fmt_log_position_members(
