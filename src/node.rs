@@ -147,21 +147,11 @@ impl RaftNode {
                 f.member("type", "ClusterConfig")?;
                 f.member(
                     "voters",
-                    nojson::array(|f| {
-                        for node_id in config.voters.iter() {
-                            f.element(node_id.get())?;
-                        }
-                        Ok(())
-                    }),
+                    nojson::array(|f| f.elements(config.voters.iter().map(|v| v.get()))),
                 )?;
                 f.member(
                     "new_voters",
-                    nojson::array(|f| {
-                        for node_id in config.new_voters.iter() {
-                            f.element(node_id.get())?;
-                        }
-                        Ok(())
-                    }),
+                    nojson::array(|f| f.elements(config.new_voters.iter().map(|v| v.get()))),
                 )
             }
             raftbare::LogEntry::Command => {
