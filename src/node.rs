@@ -107,7 +107,7 @@ impl RaftNode {
                     todo!("BroadcastMessage action")
                 }
                 raftbare::Action::AppendLogEntries(entries) => {
-                   let value = JsonLineValue::new_internal(nojson::json(|f| {
+                    let value = JsonLineValue::new_internal(nojson::json(|f| {
                         self.fmt_log_entries_json(f, &entries)
                     }));
                     self.push_action(RaftNodeAction::AppendStorageEntry(value));
@@ -123,40 +123,47 @@ impl RaftNode {
         self.action_queue.pop_front()
     }
 
+    fn fmt_log_position_members(
+        &self,
+        f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
+        position: raftbare::LogPosition,
+    ) -> std::fmt::Result {
+        f.member("term", position.term.get())?;
+        f.member("index", position.index.get())
+    }
+
+    fn fmt_log_entry_members(
+        &self,
+        f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
+        entry:& raftbare::LogEntry,
+    ) -> std::fmt::Result {
+        match entry {
+            raftbare::LogEntry::Term(term) => {
+                f.member("type", "Term")?;
+                f.member("term", term.get())
+            }
+            raftbare::LogEntry::ClusterConfig(_) => f.member("type", "ClusterConfig"),
+            raftbare::LogEntry::Command => f.member("type", "Command"),
+        }
+    }
+
     fn fmt_log_entries_json(
         &self,
         f: &mut nojson::JsonFormatter<'_, '_>,
         entries: &raftbare::LogEntries,
     ) -> std::fmt::Result {
-        Ok(())
-        /*f.array(|f| {
-            for (position, entry) in entries.iter_with_positions() {
-                f.element(nojson::json(|f| {
-                    f.object(|f| {
-                        f.member("term", position.term.get())?;
-                        f.member("index", position.index.get())?;
-                        f.member(
-                            "entry",
-                            match entry {
-                                raftbare::LogEntry::Term(term) => nojson::json(|f| {
-                                    f.object(|f| {
-                                        f.member("type", "Term")?;
-                                        f.member("term", term.get())
-                                    })
-                                }),
-                                raftbare::LogEntry::ClusterConfig(_) => nojson::json(|f| {
-                                    f.object(|f| f.member("type", "ClusterConfig"))
-                                }),
-                                raftbare::LogEntry::Command => {
-                                    nojson::json(|f| f.object(|f| f.member("type", "Command")))
-                                }
-                            },
-                        )
-                    })
-                }))?;
-            }
-            Ok(())
-        })*/
+        f.object(|f| {
+            self.fmt_log_position_members(f, entries.prev_position())?;
+            f.member(
+                "entries",
+                nojson::array(|f| {
+                    for entry in entries.iter() {
+                        f.element(nojson::object(|f| self.fmt_log_entry_members(f, &entry)))?;
+                    }
+                    Ok(())
+                }),
+            )
+        })
     }
 }
 
