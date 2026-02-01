@@ -92,10 +92,16 @@ impl RaftNode {
                     self.push_action(RaftNodeAction::SetTimeout(self.inner.role()));
                 }
                 raftbare::Action::SaveCurrentTerm => {
-                    todo!("SaveCurrentTerm action")
+                    let term = self.inner.current_term();
+                    let entry = StorageEntry::Term(term);
+                    let value = JsonLineValue::new_internal(entry);
+                    self.push_action(RaftNodeAction::AppendStorageEntry(value));
                 }
                 raftbare::Action::SaveVotedFor => {
-                    todo!("SaveVotedFor action")
+                    let voted_for = self.inner.voted_for();
+                    let entry = StorageEntry::VotedFor(voted_for);
+                    let value = JsonLineValue::new_internal(entry);
+                    self.push_action(RaftNodeAction::AppendStorageEntry(value));
                 }
                 raftbare::Action::BroadcastMessage(_) => {
                     todo!("BroadcastMessage action")
