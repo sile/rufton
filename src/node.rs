@@ -9,6 +9,7 @@ pub struct RaftNode {
     pub instance_id: u64,
     pub local_command_seqno: u64,
     pub applied_index: raftbare::LogIndex,
+    pub dirty_members: bool,
 }
 
 impl RaftNode {
@@ -23,6 +24,7 @@ impl RaftNode {
             instance_id,
             local_command_seqno: 0,
             applied_index: raftbare::LogIndex::ZERO,
+            dirty_members: false,
         }
     }
 
@@ -83,10 +85,26 @@ impl RaftNode {
         self.action_queue.push_back(action);
     }
 
+    fn maybe_sync_raft_members(&mut self) {
+        if !self.dirty_members {
+            return;
+        }
+        if !self.inner.role().is_leader() {
+            return;
+        }
+        if self.inner.config().is_joint_consensus() {
+            return;
+        }
+
+        todo!()
+    }
+
     pub fn next_action(&mut self) -> Option<RaftNodeAction> {
         if !self.initialized {
             return None;
         }
+
+        self.maybe_sync_raft_members();
 
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
@@ -138,7 +156,8 @@ impl RaftNode {
                     self.handle_add_node(&command).expect("bug");
                     None
                 }
-                _ => Some(command),
+                "Apply" => Some(command),
+                _ => panic!("bug"),
             };
 
             self.push_action(RaftNodeAction::Commit {
@@ -155,7 +174,14 @@ impl RaftNode {
     fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
         let id = raftbare::NodeId::new(command.get_member("id")?);
         let addr = command.get_member("addr")?;
+
+        if self.machine.node_addrs.contains_key(&id) {
+            return Ok(());
+        }
+
         self.machine.node_addrs.insert(id, addr);
+        self.dirty_members = true;
+
         Ok(())
     }
 
