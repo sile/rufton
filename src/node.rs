@@ -427,7 +427,9 @@ mod tests {
         ));
         assert_eq!(node.next_action(), None);
 
-        //
+        // Check that the initial node was added to cluster members
+        assert_eq!(node.machine.node_addrs.len(), 1);
+        assert_eq!(node.machine.node_addrs.get(&node_id(0)), Some(&addr(9000)));
     }
 
     #[test]
