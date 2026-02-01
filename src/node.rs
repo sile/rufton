@@ -86,10 +86,10 @@ impl RaftNode {
             return None;
         }
 
-        for inner_action in self.inner.actions_mut() {
+        while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
                 raftbare::Action::SetElectionTimeout => {
-                    todo!("SetElectionTimeout action")
+                    self.push_action(RaftNodeAction::SetTimeout(self.inner.role()));
                 }
                 raftbare::Action::SaveCurrentTerm => {
                     todo!("SaveCurrentTerm action")
@@ -226,16 +226,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for RaftNodeCommand
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RaftNodeAction {
-    ReplyOk {
-        proposal_id: ProposalId,
-
-        // None means "committed but the result is unknown (e.g. the commit position was skipped by snapshot)
-        result: Option<JsonLineValue>,
-    },
-    ReplyErr {
-        proposal_id: ProposalId,
-        reason: String,
-    },
+    SetTimeout(raftbare::Role),
 }
 
 #[derive(Debug)]
