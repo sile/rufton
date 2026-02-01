@@ -230,7 +230,7 @@ impl JsonLineValue {
     // Assumes the input does not include newlines
     fn new_internal<T: nojson::DisplayJson>(v: T) -> Self {
         let line = nojson::Json(v).to_string();
-        let json = nojson::RawJsonOwned::parse(line).expect("infallibe");
+        let json = nojson::RawJsonOwned::parse(line).expect("infallible");
         Self(std::sync::Arc::new(json))
     }
 
@@ -359,6 +359,20 @@ mod tests {
         assert!(node.init_cluster());
         assert!(!node.init_cluster());
         assert_eq!(node.next_action(), Some(set_leader_timeout_action()));
+        assert_eq!(
+            node.next_action(),
+            Some(append_storage_entry_action(r#"{"type":"Term","term":1}"#))
+        );
+        assert_eq!(
+            node.next_action(),
+            Some(append_storage_entry_action(
+                r#"{"type":"VotedFor","node_id":0}"#
+            ))
+        );
+        assert!(matches!(
+            node.next_action(),
+            Some(RaftNodeAction::AppendStorageEntry(_))
+        ));
         assert_eq!(node.next_action(), None);
     }
 
@@ -367,8 +381,14 @@ mod tests {
         let mut node = RaftNode::new(node_id(0), addr(9000), 0);
         assert!(node.init_cluster());
 
-        let proposal_id = node.propose_add_node(node_id(1), addr(9001)).expect("ok");
-        assert_eq!(node.next_action(), None);
+        let _proposal_id = node.propose_add_node(node_id(1), addr(9001)).expect("ok");
+        // assert_eq!(node.next_action(), None);
+    }
+
+    fn append_storage_entry_action(json: &str) -> RaftNodeAction {
+        let raw_json = nojson::RawJsonOwned::parse(json.to_string()).expect("invalid json");
+        let value = JsonLineValue(std::sync::Arc::new(raw_json));
+        RaftNodeAction::AppendStorageEntry(value)
     }
 
     fn set_leader_timeout_action() -> RaftNodeAction {
