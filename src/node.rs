@@ -134,6 +134,7 @@ impl RaftNode {
             return false;
         };
 
+        let command_values = crate::conv::get_command_values(message_value.get(), &message);
         self.inner.handle_message(message);
 
         true
