@@ -273,7 +273,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for ProposalId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
 
 impl JsonLineValue {
@@ -299,6 +299,18 @@ impl JsonLineValue {
 impl nojson::DisplayJson for JsonLineValue {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         writeln!(f.inner_mut(), "{}", self.0.text())
+    }
+}
+
+impl std::fmt::Debug for JsonLineValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.text())
+    }
+}
+
+impl std::fmt::Display for JsonLineValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.text())
     }
 }
 
@@ -505,7 +517,7 @@ mod tests {
         while node0.next_action().is_some() {}
 
         // Propose adding node1 to the cluster
-        let proposal_id = node0.propose_add_node(node_id(1), addr(9001)).expect("ok");
+        node0.propose_add_node(node_id(1), addr(9001)).expect("ok");
 
         // Collect broadcast messages from node0
         let mut broadcast_messages = Vec::new();
@@ -521,6 +533,7 @@ mod tests {
 
         // Node1 handles broadcast messages from node0
         for broadcast_msg in broadcast_messages {
+            dbg!(&broadcast_msg);
             assert!(
                 node1.handle_message(&broadcast_msg),
                 "Should successfully handle message"
@@ -528,11 +541,11 @@ mod tests {
         }
 
         // Process actions in node1
-        while node1.next_action().is_some() {}
+        while dbg!(node1.next_action()).is_some() {}
 
         // Both nodes should now have each other in their cluster members
         assert_eq!(node0.machine.node_addrs.len(), 2);
-        assert_eq!(node1.machine.node_addrs.len(), 1); // node1 will have node0's address once synced
+        assert_eq!(node1.machine.node_addrs.len(), 2);
     }
 
     fn append_storage_entry_action(json: &str) -> Action {
