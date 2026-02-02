@@ -138,7 +138,9 @@ impl RaftNode {
 
         let command_values = crate::conv::get_command_values(message_value.get(), &message);
         for (pos, command) in command_values.into_iter().flatten() {
-            self.recent_commands.insert(pos.index, command);
+            if self.inner.log().entries().contains(pos) {
+                self.recent_commands.insert(pos.index, command);
+            }
         }
 
         true
