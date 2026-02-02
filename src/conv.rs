@@ -209,7 +209,10 @@ pub fn json_to_message(
 
                         raftbare::LogEntry::ClusterConfig(config)
                     }
-                    "Command" => raftbare::LogEntry::Command,
+                    "Command" => {
+                        entry_value.to_member("value")?.required()?;
+                        raftbare::LogEntry::Command
+                    }
                     _ => {
                         return Err(entry_value
                             .invalid(format!("unknown log entry type: {}", entry_type_str)));

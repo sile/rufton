@@ -129,19 +129,17 @@ impl RaftNode {
         self.dirty_members = false;
     }
 
-    pub fn handle_message(&mut self, message: &JsonLineValue) -> bool {
-        // TODO: Remove String conversion
-        let Ok(ty) = message.get_member::<String>("type") else {
+    pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
+        let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
             return false;
         };
 
+        self.inner.handle_message(message);
+
+        true
         // TODO:
         // - Convert message to raftbare message
         // - update recent commands if needs (check inner's log)
-
-        match ty.as_str() {
-            _ => false,
-        }
     }
 
     pub fn next_action(&mut self) -> Option<Action> {
