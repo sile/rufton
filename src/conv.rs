@@ -122,3 +122,152 @@ fn fmt_message_header_members(
     f.member("term", header.term.get())?;
     f.member("seqno", header.seqno.get())
 }
+
+/// Converts a JSON value to a Message, excluding the command value
+///
+/// This function parses JSON representations of Raft messages back into their
+/// corresponding Message types. Note that for Command entries, only the structure
+/// is validated; the actual command data must be managed separately by the caller.
+pub fn json_to_message(
+    value: nojson::RawJsonValue<'_, '_>,
+) -> Result<raftbare::Message, nojson::JsonParseError> {
+    // TODO: use str
+    let msg_type_str: String = value.to_member("type")?.required()?.try_into()?;
+
+    let from = raftbare::NodeId::new(value.to_member("from")?.required()?.try_into()?);
+    let term = raftbare::Term::new(value.to_member("term")?.required()?.try_into()?);
+    let seqno = raftbare::MessageSeqNo::new(value.to_member("seqno")?.required()?.try_into()?);
+
+    let header = raftbare::MessageHeader { from, term, seqno };
+
+    match msg_type_str.as_str() {
+        "RequestVoteCall" => {
+            let last_term: raftbare::Term = value
+                .to_member("last_term")?
+                .required()?
+                .as_number_str()?
+                .parse::<u64>()
+                .map_err(|e| value.invalid(e))?
+                .into();
+            let last_index: raftbare::LogIndex = value
+                .to_member("last_index")?
+                .required()?
+                .as_number_str()?
+                .parse::<u64>()
+                .map_err(|e| value.invalid(e))?
+                .into();
+
+            Ok(raftbare::Message::RequestVoteCall {
+                header,
+                last_position: raftbare::LogPosition {
+                    term: last_term,
+                    index: last_index,
+                },
+            })
+        }
+        "RequestVoteReply" => {
+            let vote_granted: bool = value.to_member("vote_granted")?.required()?.try_into()?;
+
+            Ok(raftbare::Message::RequestVoteReply {
+                header,
+                vote_granted,
+            })
+        }
+        "AppendEntriesCall" => {
+            let commit_index: raftbare::LogIndex = value
+                .to_member("commit_index")?
+                .required()?
+                .as_number_str()?
+                .parse::<u64>()
+                .map_err(|e| value.invalid(e))?
+                .into();
+
+            let entries_array = value.to_member("entries")?.required()?.to_array()?;
+
+            let mut entries = raftbare::LogEntries::new(raftbare::LogPosition::ZERO);
+            for (idx, entry_value) in entries_array.enumerate() {
+                let entry_type_str: String = entry_value
+                    .to_member("type")?
+                    .required()?
+                    .to_unquoted_string_str()?
+                    .into_owned();
+
+                let entry = match entry_type_str.as_str() {
+                    "Term" => {
+                        let term: raftbare::Term = entry_value
+                            .to_member("term")?
+                            .required()?
+                            .as_number_str()?
+                            .parse::<u64>()
+                            .map_err(|e| entry_value.invalid(e))?
+                            .into();
+                        raftbare::LogEntry::Term(term)
+                    }
+                    "ClusterConfig" => {
+                        let voters: Vec<raftbare::NodeId> = entry_value
+                            .to_member("voters")?
+                            .required()?
+                            .to_array()?
+                            .map(|v| v.try_into())
+                            .collect::<Result<Vec<_>, _>>()?;
+
+                        let new_voters: Vec<raftbare::NodeId> = entry_value
+                            .to_member("new_voters")?
+                            .required()?
+                            .to_array()?
+                            .map(|v| v.try_into())
+                            .collect::<Result<Vec<_>, _>>()?;
+
+                        let mut config = raftbare::ClusterConfig::new();
+                        for voter in voters {
+                            config.voters.insert(voter);
+                        }
+                        for new_voter in new_voters {
+                            config.new_voters.insert(new_voter);
+                        }
+
+                        raftbare::LogEntry::ClusterConfig(config)
+                    }
+                    "Command" => raftbare::LogEntry::Command,
+                    _ => {
+                        return Err(entry_value
+                            .invalid(format!("Unknown log entry type: {}", entry_type_str)));
+                    }
+                };
+
+                entries.push(entry);
+            }
+
+            Ok(raftbare::Message::AppendEntriesCall {
+                header,
+                commit_index,
+                entries,
+            })
+        }
+        "AppendEntriesReply" => {
+            let last_term: raftbare::Term = value
+                .to_member("last_term")?
+                .required()?
+                .as_number_str()?
+                .parse::<u64>()
+                .map_err(|e| value.invalid(e))?
+                .into();
+            let last_index: raftbare::LogIndex = value
+                .to_member("last_index")?
+                .required()?
+                .as_number_str()?
+                .parse::<u64>()
+                .map_err(|e| value.invalid(e))?
+                .into();
+
+            Ok(raftbare::Message::AppendEntriesReply {
+                header,
+                last_position: raftbare::LogPosition {
+                    term: last_term,
+                    index: last_index,
+                },
+            })
+        }
+        _ => Err(value.invalid(format!("Unknown message type: {}", msg_type_str))),
+    }
+}
