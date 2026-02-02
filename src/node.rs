@@ -28,6 +28,10 @@ impl RaftNode {
         }
     }
 
+    pub fn id(&self) -> raftbare::NodeId {
+        self.inner.id()
+    }
+
     pub fn init_cluster(&mut self) -> bool {
         if self.initialized {
             return false;
@@ -497,7 +501,7 @@ mod tests {
         assert!(node0.init_cluster());
         while node0.next_action().is_some() {}
 
-        node0.propose_add_node(node_id(1)).expect("ok");
+        node0.propose_add_node(node1.id()).expect("ok");
 
         let mut broadcast_messages = Vec::new();
         while let Some(action) = node0.next_action() {
