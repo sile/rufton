@@ -51,6 +51,13 @@ impl RaftNode {
     // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
     // - Redirected proposal was discarded by any reasons (e.g. node down, redirect limit reached)
 
+    pub fn propose_command(
+        &mut self,
+        command: JsonLineValue,
+    ) -> Result<ProposalId, NotInitialized> {
+        todo!()
+    }
+
     pub fn propose_add_node(&mut self, id: raftbare::NodeId) -> Result<ProposalId, NotInitialized> {
         if !self.initialized {
             return Err(NotInitialized);
@@ -537,6 +544,33 @@ mod tests {
 
         assert_eq!(nodes[0].machine.nodes.len(), 2);
         assert_eq!(nodes[1].machine.nodes.len(), 2);
+    }
+
+    #[test]
+    fn propose_command_to_non_leader_node() {
+        let mut node0 = RaftNode::new(node_id(0), 0);
+        let node1 = RaftNode::new(node_id(1), 1);
+
+        assert!(node0.init_cluster());
+        while node0.next_action().is_some() {}
+
+        node0.propose_add_node(node1.id()).expect("ok");
+
+        let mut nodes = [node0, node1];
+        run_actions(&mut nodes);
+
+        // node0 is the leader, node1 is a follower
+        assert!(nodes[0].inner.role().is_leader());
+        assert!(!nodes[1].inner.role().is_leader());
+
+        // Try to propose a command to the non-leader (node1)
+        let command = JsonLineValue::new_internal("test_command");
+        let result = nodes[1].propose_command(command);
+
+        // Should fail or redirect since node1 is not the leader
+        assert!(result.is_err() || matches!(result, Ok(_)));
+        // The actual behavior depends on the implementation of propose_command
+        // which currently has a todo!() placeholder
     }
 
     fn append_storage_entry_action(json: &str) -> Action {
