@@ -123,6 +123,36 @@ fn fmt_message_header_members(
     f.member("seqno", header.seqno.get())
 }
 
+pub fn get_command_values(
+    value: nojson::RawJsonValue<'_, '_>,
+    message: &raftbare::Message,
+) -> Option<impl Iterator<Item = (raftbare::LogPosition, crate::node::JsonLineValue)>> {
+    let raftbare::Message::AppendEntriesCall { entries, .. } = message else {
+        return None;
+    };
+
+    let entry_values = value
+        .to_member("entries")
+        .and_then(|v| v.required())
+        .and_then(|v| v.to_array())
+        .expect("bug");
+    Some(
+        entries
+            .iter_with_positions()
+            .zip(entry_values)
+            .filter_map(|((pos, entry), value)| {
+                if !matches!(entry, raftbare::LogEntry::Command) {
+                    return None;
+                };
+                let command_value = value
+                    .to_member("value")
+                    .and_then(|v| v.required())
+                    .expect("bug");
+                Some((pos, crate::node::JsonLineValue::new_internal(command_value)))
+            }),
+    )
+}
+
 /// Converts a JSON value to a Message, excluding the command value
 ///
 /// This function parses JSON representations of Raft messages back into their

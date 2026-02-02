@@ -274,7 +274,7 @@ pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
 
 impl JsonLineValue {
     // Assumes the input does not include newlines
-    fn new_internal<T: nojson::DisplayJson>(v: T) -> Self {
+    pub(crate) fn new_internal<T: nojson::DisplayJson>(v: T) -> Self {
         let line = nojson::Json(v).to_string();
         let json = nojson::RawJsonOwned::parse(line).expect("infallible");
         Self(std::sync::Arc::new(json))
