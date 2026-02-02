@@ -172,8 +172,11 @@ impl RaftNode {
                     }));
                     self.push_action(Action::AppendStorageEntry(value));
                 }
-                raftbare::Action::SendMessage(_, _) => {
-                    todo!("SendMessage action")
+                raftbare::Action::SendMessage(node_id, message) => {
+                    let message = JsonLineValue::new_internal(nojson::json(|f| {
+                        crate::conv::fmt_message(f, &message, &self.recent_commands)
+                    }));
+                    self.push_action(Action::SendMessage { node_id, message });
                 }
                 raftbare::Action::InstallSnapshot(_) => {
                     todo!("InstallSnapshot action")
@@ -368,6 +371,10 @@ pub enum Action {
     SetTimeout(raftbare::Role),
     AppendStorageEntry(JsonLineValue),
     BroadcastMessage(JsonLineValue),
+    SendMessage {
+        node_id: raftbare::NodeId,
+        message: JsonLineValue,
+    },
     Commit {
         proposal_id: ProposalId,
         index: raftbare::LogIndex,
