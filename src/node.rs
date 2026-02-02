@@ -134,13 +134,14 @@ impl RaftNode {
             return false;
         };
 
+        self.inner.handle_message(message.clone()); // TODO: remove clone
+
         let command_values = crate::conv::get_command_values(message_value.get(), &message);
-        self.inner.handle_message(message);
+        for (pos, command) in command_values.into_iter().flatten() {
+            self.recent_commands.insert(pos.index, command);
+        }
 
         true
-        // TODO:
-        // - Convert message to raftbare message
-        // - update recent commands if needs (check inner's log)
     }
 
     pub fn next_action(&mut self) -> Option<Action> {
