@@ -3,7 +3,6 @@ pub type RecentCommands = std::collections::BTreeMap<raftbare::LogIndex, JsonLin
 #[derive(Debug)]
 pub struct RaftNode {
     pub inner: raftbare::Node,
-    pub addr: std::net::SocketAddr,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<Action>,
     pub recent_commands: RecentCommands,
@@ -15,10 +14,9 @@ pub struct RaftNode {
 }
 
 impl RaftNode {
-    pub fn new(id: raftbare::NodeId, addr: std::net::SocketAddr, instance_id: u64) -> Self {
+    pub fn new(id: raftbare::NodeId, instance_id: u64) -> Self {
         Self {
             inner: raftbare::Node::start(id),
-            addr,
             machine: RaftNodeStateMachine::default(),
             action_queue: std::collections::VecDeque::new(),
             recent_commands: std::collections::BTreeMap::new(),
@@ -39,8 +37,7 @@ impl RaftNode {
         self.inner.create_cluster(&initial_members);
         self.initialized = true;
 
-        self.propose_add_node(self.inner.id(), self.addr)
-            .expect("infallible");
+        self.propose_add_node(self.inner.id()).expect("infallible");
 
         true
     }
@@ -50,11 +47,7 @@ impl RaftNode {
     // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
     // - Redirected proposal was discarded by any reasons (e.g. node down, redirect limit reached)
 
-    pub fn propose_add_node(
-        &mut self,
-        id: raftbare::NodeId,
-        addr: std::net::SocketAddr,
-    ) -> Result<ProposalId, NotInitialized> {
+    pub fn propose_add_node(&mut self, id: raftbare::NodeId) -> Result<ProposalId, NotInitialized> {
         if !self.initialized {
             return Err(NotInitialized);
         }
@@ -72,13 +65,9 @@ impl RaftNode {
 
         let position = self.inner.propose_command();
 
-        let command = Command::AddNode {
-            proposal_id,
-            id,
-            addr,
-        };
+        let command = Command::AddNode { proposal_id, id };
         let value = JsonLineValue::new_internal(command);
-        self.recent_commands.insert(position.index, value); // TODO: write why use index here (not position)
+        self.recent_commands.insert(position.index, value);
 
         Ok(proposal_id)
     }
@@ -103,9 +92,8 @@ impl RaftNode {
         let current_voters: std::collections::BTreeSet<_> =
             current_config.voters.iter().copied().collect();
 
-        // Get voters from state machine addresses
-        let machine_voters: std::collections::BTreeSet<_> =
-            self.machine.node_addrs.keys().copied().collect();
+        // Get voters from state machine nodes
+        let machine_voters = &self.machine.nodes;
 
         // Calculate differences
         let nodes_to_add: Vec<_> = machine_voters
@@ -136,7 +124,7 @@ impl RaftNode {
         if !self.initialized {
             self.initialized = true;
         }
-        self.inner.handle_message(message.clone()); // TODO: remove clone
+        self.inner.handle_message(message.clone());
 
         let command_values = crate::conv::get_command_values(message_value.get(), &message);
         for (pos, command) in command_values.into_iter().flatten() {
@@ -197,12 +185,10 @@ impl RaftNode {
             let index = raftbare::LogIndex::new(i + 1);
 
             let Some(command) = self.recent_commands.get(&index).cloned() else {
-                // Igores non-command entries as they are handled by the raftbare layer
                 continue;
             };
             let proposal_id = command.get_member("proposal_id").expect("bug");
 
-            // TODO: Remove String conversion
             let command = match command.get_member::<String>("type").expect("bug").as_str() {
                 "AddNode" => {
                     self.handle_add_node(&command).expect("bug");
@@ -225,13 +211,12 @@ impl RaftNode {
 
     fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
         let id = raftbare::NodeId::new(command.get_member("id")?);
-        let addr = command.get_member("addr")?;
 
-        if self.machine.node_addrs.contains_key(&id) {
+        if self.machine.nodes.contains(&id) {
             return Ok(());
         }
 
-        self.machine.node_addrs.insert(id, addr);
+        self.machine.nodes.insert(id);
         self.dirty_members = true;
 
         Ok(())
@@ -279,7 +264,6 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for ProposalId {
 pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
 
 impl JsonLineValue {
-    // Assumes the input does not include newlines
     pub(crate) fn new_internal<T: nojson::DisplayJson>(v: T) -> Self {
         let line = nojson::Json(v).to_string();
         let json = nojson::RawJsonOwned::parse(line).expect("infallible");
@@ -321,7 +305,6 @@ pub enum Command {
     AddNode {
         proposal_id: ProposalId,
         id: raftbare::NodeId,
-        addr: std::net::SocketAddr,
     },
     Apply {
         proposal_id: ProposalId,
@@ -332,15 +315,10 @@ pub enum Command {
 impl nojson::DisplayJson for Command {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
-            Command::AddNode {
-                proposal_id,
-                id,
-                addr,
-            } => f.object(|f| {
+            Command::AddNode { proposal_id, id } => f.object(|f| {
                 f.member("type", "AddNode")?;
                 f.member("proposal_id", proposal_id)?;
-                f.member("id", id.get())?;
-                f.member("addr", addr)
+                f.member("id", id.get())
             }),
             Command::Apply {
                 proposal_id,
@@ -366,11 +344,9 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
             "AddNode" => {
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 let id = value.to_member("id")?.required()?.try_into()?;
-                let addr = value.to_member("addr")?.required()?.try_into()?;
                 Ok(Command::AddNode {
                     proposal_id,
                     id: raftbare::NodeId::new(id),
-                    addr,
                 })
             }
             "Apply" => {
@@ -444,7 +420,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
 
 #[derive(Debug, Default)]
 pub struct RaftNodeStateMachine {
-    pub node_addrs: std::collections::BTreeMap<raftbare::NodeId, std::net::SocketAddr>,
+    pub nodes: std::collections::BTreeSet<raftbare::NodeId>,
 }
 
 #[cfg(test)]
@@ -453,7 +429,7 @@ mod tests {
 
     #[test]
     fn init_cluster() {
-        let mut node = RaftNode::new(node_id(0), addr(9000), 0);
+        let mut node = RaftNode::new(node_id(0), 0);
         assert!(node.init_cluster());
         assert!(!node.init_cluster());
         assert_eq!(node.next_action(), Some(set_leader_timeout_action()));
@@ -474,20 +450,18 @@ mod tests {
         assert!(matches!(node.next_action(), Some(Action::Commit { .. })));
         assert_eq!(node.next_action(), None);
 
-        // Check that the initial node was added to cluster members
-        assert_eq!(node.machine.node_addrs.len(), 1);
-        assert_eq!(node.machine.node_addrs.get(&node_id(0)), Some(&addr(9000)));
+        assert_eq!(node.machine.nodes.len(), 1);
+        assert!(node.machine.nodes.contains(&node_id(0)));
     }
 
     #[test]
     fn propose_add_node() {
-        let mut node = RaftNode::new(node_id(0), addr(9000), 0);
+        let mut node = RaftNode::new(node_id(0), 0);
         assert!(node.init_cluster());
         while node.next_action().is_some() {}
 
-        let proposal_id = node.propose_add_node(node_id(1), addr(9001)).expect("ok");
+        let proposal_id = node.propose_add_node(node_id(1)).expect("ok");
 
-        // Loop until the proposal is committed
         let mut found_commit = false;
         while let Some(action) = node.next_action() {
             if let Action::Commit {
@@ -504,24 +478,20 @@ mod tests {
 
         while node.next_action().is_some() {}
 
-        // Check that the new node was added to cluster members
-        assert_eq!(node.machine.node_addrs.len(), 2);
-        assert_eq!(node.machine.node_addrs.get(&node_id(1)), Some(&addr(9001)));
+        assert_eq!(node.machine.nodes.len(), 2);
+        assert!(node.machine.nodes.contains(&node_id(1)));
     }
 
     #[test]
     fn two_node_broadcast_message_handling() {
-        let mut node0 = RaftNode::new(node_id(0), addr(9000), 0);
-        let mut node1 = RaftNode::new(node_id(1), addr(9001), 1);
+        let mut node0 = RaftNode::new(node_id(0), 0);
+        let mut node1 = RaftNode::new(node_id(1), 1);
 
-        // Initialize node0 as leader
         assert!(node0.init_cluster());
         while node0.next_action().is_some() {}
 
-        // Propose adding node1 to the cluster
-        node0.propose_add_node(node_id(1), addr(9001)).expect("ok");
+        node0.propose_add_node(node_id(1)).expect("ok");
 
-        // Collect broadcast messages from node0
         let mut broadcast_messages = Vec::new();
         while let Some(action) = node0.next_action() {
             if let Action::BroadcastMessage(msg) = action {
@@ -533,7 +503,6 @@ mod tests {
             "Should have broadcast messages"
         );
 
-        // Node1 handles broadcast messages from node0
         for broadcast_msg in broadcast_messages {
             dbg!(&broadcast_msg);
             assert!(
@@ -542,15 +511,12 @@ mod tests {
             );
         }
 
-        // Process actions in node1
         while let Some(action) = node1.next_action() {
-            //
             dbg!(action);
         }
 
-        // Both nodes should now have each other in their cluster members
-        assert_eq!(node0.machine.node_addrs.len(), 2);
-        assert_eq!(node1.machine.node_addrs.len(), 2);
+        assert_eq!(node0.machine.nodes.len(), 2);
+        assert_eq!(node1.machine.nodes.len(), 2);
     }
 
     fn append_storage_entry_action(json: &str) -> Action {
@@ -565,9 +531,5 @@ mod tests {
 
     fn node_id(n: u64) -> raftbare::NodeId {
         raftbare::NodeId::new(n)
-    }
-
-    fn addr(port: u16) -> std::net::SocketAddr {
-        std::net::SocketAddr::from(([127, 0, 0, 1], port))
     }
 }
