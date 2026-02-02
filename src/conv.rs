@@ -142,20 +142,10 @@ pub fn json_to_message(
 
     match msg_type_str.as_str() {
         "RequestVoteCall" => {
-            let last_term: raftbare::Term = value
-                .to_member("last_term")?
-                .required()?
-                .as_number_str()?
-                .parse::<u64>()
-                .map_err(|e| value.invalid(e))?
-                .into();
-            let last_index: raftbare::LogIndex = value
-                .to_member("last_index")?
-                .required()?
-                .as_number_str()?
-                .parse::<u64>()
-                .map_err(|e| value.invalid(e))?
-                .into();
+            let last_term =
+                raftbare::Term::new(value.to_member("last_term")?.required()?.try_into()?);
+            let last_index =
+                raftbare::LogIndex::new(value.to_member("last_index")?.required()?.try_into()?);
 
             Ok(raftbare::Message::RequestVoteCall {
                 header,
@@ -174,13 +164,8 @@ pub fn json_to_message(
             })
         }
         "AppendEntriesCall" => {
-            let commit_index: raftbare::LogIndex = value
-                .to_member("commit_index")?
-                .required()?
-                .as_number_str()?
-                .parse::<u64>()
-                .map_err(|e| value.invalid(e))?
-                .into();
+            let commit_index =
+                raftbare::LogIndex::new(value.to_member("commit_index")?.required()?.try_into()?);
 
             let entries_array = value.to_member("entries")?.required()?.to_array()?;
 
@@ -194,13 +179,9 @@ pub fn json_to_message(
 
                 let entry = match entry_type_str.as_str() {
                     "Term" => {
-                        let term: raftbare::Term = entry_value
-                            .to_member("term")?
-                            .required()?
-                            .as_number_str()?
-                            .parse::<u64>()
-                            .map_err(|e| entry_value.invalid(e))?
-                            .into();
+                        let term = raftbare::Term::new(
+                            entry_value.to_member("term")?.required()?.try_into()?,
+                        );
                         raftbare::LogEntry::Term(term)
                     }
                     "ClusterConfig" => {
@@ -251,20 +232,10 @@ pub fn json_to_message(
             })
         }
         "AppendEntriesReply" => {
-            let last_term: raftbare::Term = value
-                .to_member("last_term")?
-                .required()?
-                .as_number_str()?
-                .parse::<u64>()
-                .map_err(|e| value.invalid(e))?
-                .into();
-            let last_index: raftbare::LogIndex = value
-                .to_member("last_index")?
-                .required()?
-                .as_number_str()?
-                .parse::<u64>()
-                .map_err(|e| value.invalid(e))?
-                .into();
+            let last_term =
+                raftbare::Term::new(value.to_member("last_term")?.required()?.try_into()?);
+            let last_index =
+                raftbare::LogIndex::new(value.to_member("last_index")?.required()?.try_into()?);
 
             Ok(raftbare::Message::AppendEntriesReply {
                 header,
