@@ -509,22 +509,11 @@ mod tests {
 
         // Collect broadcast messages from node0
         let mut broadcast_messages = Vec::new();
-        loop {
-            match node0.next_action() {
-                Some(Action::BroadcastMessage(msg)) => {
-                    broadcast_messages.push(msg);
-                }
-                Some(Action::Commit {
-                    proposal_id: commit_proposal_id,
-                    ..
-                }) if commit_proposal_id == proposal_id => {
-                    break;
-                }
-                Some(_) => {}
-                None => break,
+        while let Some(action) = node0.next_action() {
+            if let Action::BroadcastMessage(msg) = action {
+                broadcast_messages.push(msg);
             }
         }
-
         assert!(
             !broadcast_messages.is_empty(),
             "Should have broadcast messages"
