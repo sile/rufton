@@ -490,7 +490,7 @@ mod tests {
         assert!(node.machine.nodes.contains(&node_id(1)));
     }
 
-    fn run_actions(nodes: &mut [&mut RaftNode]) {
+    fn run_actions(nodes: &mut [RaftNode]) {
         for _ in 0..1000 {
             let mut did_something = false;
 
@@ -523,37 +523,18 @@ mod tests {
     #[test]
     fn two_node_broadcast_message_handling() {
         let mut node0 = RaftNode::new(node_id(0), 0);
-        let mut node1 = RaftNode::new(node_id(1), 1);
+        let node1 = RaftNode::new(node_id(1), 1);
 
         assert!(node0.init_cluster());
         while node0.next_action().is_some() {}
 
         node0.propose_add_node(node1.id()).expect("ok");
 
-        let mut broadcast_messages = Vec::new();
-        while let Some(action) = node0.next_action() {
-            if let Action::BroadcastMessage(msg) = action {
-                broadcast_messages.push(msg);
-            }
-        }
-        assert!(
-            !broadcast_messages.is_empty(),
-            "Should have broadcast messages"
-        );
+        let mut nodes = [node0, node1];
+        run_actions(&mut nodes);
 
-        for broadcast_msg in broadcast_messages {
-            assert!(
-                node1.handle_message(&broadcast_msg),
-                "Should successfully handle message"
-            );
-        }
-
-        while let Some(action) = node1.next_action() {
-            dbg!(action);
-        }
-
-        assert_eq!(node0.machine.nodes.len(), 2);
-        assert_eq!(node1.machine.nodes.len(), 2);
+        assert_eq!(nodes[0].machine.nodes.len(), 2);
+        assert_eq!(nodes[1].machine.nodes.len(), 2);
     }
 
     fn append_storage_entry_action(json: &str) -> Action {
