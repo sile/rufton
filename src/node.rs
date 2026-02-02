@@ -507,6 +507,8 @@ mod tests {
                         }
                         Action::SendMessage(j, m) => {
                             assert!(nodes[j.get() as usize].handle_message(&m));
+                            let j = j.get() as usize;
+                            assert!(nodes[j].handle_message(&m));
                         }
                         _ => {}
                     }

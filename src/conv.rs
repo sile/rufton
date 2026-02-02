@@ -90,6 +90,9 @@ pub fn fmt_message(
             f.member("type", "AppendEntriesCall")?;
             fmt_message_header_members(f, header)?;
             f.member("commit_index", commit_index.get())?;
+            let prev_position = entries.prev_position();
+            f.member("prev_term", prev_position.term.get())?;
+            f.member("prev_index", prev_position.index.get())?;
             f.member(
                 "entries",
                 nojson::array(|f| {
@@ -197,9 +200,18 @@ pub fn json_to_message(
             let commit_index =
                 raftbare::LogIndex::new(value.to_member("commit_index")?.required()?.try_into()?);
 
+            let prev_term =
+                raftbare::Term::new(value.to_member("prev_term")?.required()?.try_into()?);
+            let prev_index =
+                raftbare::LogIndex::new(value.to_member("prev_index")?.required()?.try_into()?);
+            let prev_position = raftbare::LogPosition {
+                term: prev_term,
+                index: prev_index,
+            };
+
             let entries_array = value.to_member("entries")?.required()?.to_array()?;
 
-            let mut entries = raftbare::LogEntries::new(raftbare::LogPosition::ZERO);
+            let mut entries = raftbare::LogEntries::new(prev_position);
             for entry_value in entries_array {
                 // TODO: use str
                 let entry_type_str: String = entry_value
