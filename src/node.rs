@@ -180,7 +180,7 @@ impl RaftNode {
                     let message = JsonLineValue::new_internal(nojson::json(|f| {
                         crate::conv::fmt_message(f, &message, &self.recent_commands)
                     }));
-                    self.push_action(Action::SendMessage { node_id, message });
+                    self.push_action(Action::SendMessage(node_id, message));
                 }
                 raftbare::Action::InstallSnapshot(_) => {
                     todo!("InstallSnapshot action")
@@ -375,10 +375,7 @@ pub enum Action {
     SetTimeout(raftbare::Role),
     AppendStorageEntry(JsonLineValue),
     BroadcastMessage(JsonLineValue),
-    SendMessage {
-        node_id: raftbare::NodeId,
-        message: JsonLineValue,
-    },
+    SendMessage(raftbare::NodeId, JsonLineValue),
     Commit {
         proposal_id: ProposalId,
         index: raftbare::LogIndex,
@@ -491,6 +488,36 @@ mod tests {
 
         assert_eq!(node.machine.nodes.len(), 2);
         assert!(node.machine.nodes.contains(&node_id(1)));
+    }
+
+    fn run_actions(nodes: &mut [&mut RaftNode]) {
+        for _ in 0..1000 {
+            let mut did_something = false;
+
+            for i in 0..nodes.len() {
+                while let Some(action) = nodes[i].next_action() {
+                    did_something = true;
+                    match action {
+                        Action::BroadcastMessage(m) => {
+                            for j in 0..nodes.len() {
+                                if i != j {
+                                    assert!(nodes[j].handle_message(&m));
+                                }
+                            }
+                        }
+                        Action::SendMessage(j, m) => {
+                            assert!(nodes[j.get() as usize].handle_message(&m));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if !did_something {
+                return;
+            }
+        }
+        panic!()
     }
 
     #[test]
