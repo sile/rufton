@@ -133,7 +133,9 @@ impl RaftNode {
         let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
             return false;
         };
-
+        if !self.initialized {
+            self.initialized = true;
+        }
         self.inner.handle_message(message.clone()); // TODO: remove clone
 
         let command_values = crate::conv::get_command_values(message_value.get(), &message);
@@ -541,7 +543,10 @@ mod tests {
         }
 
         // Process actions in node1
-        while dbg!(node1.next_action()).is_some() {}
+        while let Some(action) = node1.next_action() {
+            //
+            dbg!(action);
+        }
 
         // Both nodes should now have each other in their cluster members
         assert_eq!(node0.machine.node_addrs.len(), 2);
