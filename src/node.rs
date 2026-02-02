@@ -511,7 +511,6 @@ mod tests {
         );
 
         for broadcast_msg in broadcast_messages {
-            dbg!(&broadcast_msg);
             assert!(
                 node1.handle_message(&broadcast_msg),
                 "Should successfully handle message"
