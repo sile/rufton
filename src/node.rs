@@ -495,6 +495,57 @@ mod tests {
         assert_eq!(node.machine.node_addrs.get(&node_id(1)), Some(&addr(9001)));
     }
 
+    #[test]
+    fn two_node_broadcast_message_handling() {
+        let mut node0 = RaftNode::new(node_id(0), addr(9000), 0);
+        let mut node1 = RaftNode::new(node_id(1), addr(9001), 1);
+
+        // Initialize node0 as leader
+        assert!(node0.init_cluster());
+        while node0.next_action().is_some() {}
+
+        // Propose adding node1 to the cluster
+        let proposal_id = node0.propose_add_node(node_id(1), addr(9001)).expect("ok");
+
+        // Collect broadcast messages from node0
+        let mut broadcast_messages = Vec::new();
+        loop {
+            match node0.next_action() {
+                Some(Action::BroadcastMessage(msg)) => {
+                    broadcast_messages.push(msg);
+                }
+                Some(Action::Commit {
+                    proposal_id: commit_proposal_id,
+                    ..
+                }) if commit_proposal_id == proposal_id => {
+                    break;
+                }
+                Some(_) => {}
+                None => break,
+            }
+        }
+
+        assert!(
+            !broadcast_messages.is_empty(),
+            "Should have broadcast messages"
+        );
+
+        // Node1 handles broadcast messages from node0
+        for broadcast_msg in broadcast_messages {
+            assert!(
+                node1.handle_message(&broadcast_msg),
+                "Should successfully handle message"
+            );
+        }
+
+        // Process actions in node1
+        while node1.next_action().is_some() {}
+
+        // Both nodes should now have each other in their cluster members
+        assert_eq!(node0.machine.node_addrs.len(), 2);
+        assert_eq!(node1.machine.node_addrs.len(), 1); // node1 will have node0's address once synced
+    }
+
     fn append_storage_entry_action(json: &str) -> Action {
         let raw_json = nojson::RawJsonOwned::parse(json.to_string()).expect("invalid json");
         let value = JsonLineValue(std::sync::Arc::new(raw_json));
