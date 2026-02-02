@@ -185,7 +185,7 @@ pub fn json_to_message(
             let entries_array = value.to_member("entries")?.required()?.to_array()?;
 
             let mut entries = raftbare::LogEntries::new(raftbare::LogPosition::ZERO);
-            for (idx, entry_value) in entries_array.enumerate() {
+            for entry_value in entries_array {
                 let entry_type_str: String = entry_value
                     .to_member("type")?
                     .required()?
@@ -208,14 +208,20 @@ pub fn json_to_message(
                             .to_member("voters")?
                             .required()?
                             .to_array()?
-                            .map(|v| v.try_into())
+                            .map(|v| {
+                                let node_id: u64 = v.try_into()?;
+                                Ok(raftbare::NodeId::new(node_id))
+                            })
                             .collect::<Result<Vec<_>, _>>()?;
 
                         let new_voters: Vec<raftbare::NodeId> = entry_value
                             .to_member("new_voters")?
                             .required()?
                             .to_array()?
-                            .map(|v| v.try_into())
+                            .map(|v| {
+                                let node_id: u64 = v.try_into()?;
+                                Ok(raftbare::NodeId::new(node_id))
+                            })
                             .collect::<Result<Vec<_>, _>>()?;
 
                         let mut config = raftbare::ClusterConfig::new();
