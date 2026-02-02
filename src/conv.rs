@@ -171,6 +171,7 @@ pub fn json_to_message(
 
             let mut entries = raftbare::LogEntries::new(raftbare::LogPosition::ZERO);
             for entry_value in entries_array {
+                // TODO: use str
                 let entry_type_str: String = entry_value
                     .to_member("type")?
                     .required()?
@@ -185,7 +186,8 @@ pub fn json_to_message(
                         raftbare::LogEntry::Term(term)
                     }
                     "ClusterConfig" => {
-                        let voters: Vec<raftbare::NodeId> = entry_value
+                        let mut config = raftbare::ClusterConfig::new();
+                        config.voters = entry_value
                             .to_member("voters")?
                             .required()?
                             .to_array()?
@@ -193,9 +195,9 @@ pub fn json_to_message(
                                 let node_id: u64 = v.try_into()?;
                                 Ok(raftbare::NodeId::new(node_id))
                             })
-                            .collect::<Result<Vec<_>, _>>()?;
+                            .collect::<Result<_, _>>()?;
 
-                        let new_voters: Vec<raftbare::NodeId> = entry_value
+                        config.new_voters = entry_value
                             .to_member("new_voters")?
                             .required()?
                             .to_array()?
@@ -203,22 +205,14 @@ pub fn json_to_message(
                                 let node_id: u64 = v.try_into()?;
                                 Ok(raftbare::NodeId::new(node_id))
                             })
-                            .collect::<Result<Vec<_>, _>>()?;
-
-                        let mut config = raftbare::ClusterConfig::new();
-                        for voter in voters {
-                            config.voters.insert(voter);
-                        }
-                        for new_voter in new_voters {
-                            config.new_voters.insert(new_voter);
-                        }
+                            .collect::<Result<_, _>>()?;
 
                         raftbare::LogEntry::ClusterConfig(config)
                     }
                     "Command" => raftbare::LogEntry::Command,
                     _ => {
                         return Err(entry_value
-                            .invalid(format!("Unknown log entry type: {}", entry_type_str)));
+                            .invalid(format!("unknown log entry type: {}", entry_type_str)));
                     }
                 };
 
