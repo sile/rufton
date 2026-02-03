@@ -1,6 +1,12 @@
 pub type RecentCommands = std::collections::BTreeMap<raftbare::LogIndex, JsonLineValue>;
 
 #[derive(Debug)]
+enum Pending {
+    Command(JsonLineValue),
+    Query(ProposalId),
+}
+
+#[derive(Debug)]
 pub struct RaftNode {
     pub inner: raftbare::Node,
     pub machine: RaftNodeStateMachine,
@@ -12,6 +18,7 @@ pub struct RaftNode {
     pub applied_index: raftbare::LogIndex,
     pub dirty_members: bool,
     pub pending_queries: std::collections::BTreeSet<(raftbare::LogPosition, ProposalId)>,
+    pending_proposals: std::collections::VecDeque<Pending>,
 }
 
 impl RaftNode {
@@ -27,6 +34,7 @@ impl RaftNode {
             applied_index: raftbare::LogIndex::ZERO,
             dirty_members: false,
             pending_queries: std::collections::BTreeSet::new(),
+            pending_proposals: std::collections::VecDeque::new(),
         }
     }
 
@@ -53,28 +61,32 @@ impl RaftNode {
     // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
     // - Redirected proposal was discarded by any reasons (e.g. node down, redirect limit reached)
     // - Uninitialized cluster
+    // - re-election
 
     fn propose(&mut self, command: Command) {
+        let value = JsonLineValue::new_internal(command);
+        self.propose_command_value(value);
+    }
+
+    // TODO: in redirected case, this serialization can be eliminated
+    fn propose_command_value(&mut self, command: JsonLineValue) {
         if !self.initialized {
             return;
         }
-
-        // TODO: in redirected case, this serialization can be eliminated
-        let value = JsonLineValue::new_internal(command);
 
         if !self.inner.role().is_leader() {
             if let Some(maybe_leader) = self.inner.voted_for()
                 && maybe_leader != self.id()
             {
-                self.push_action(Action::SendMessage(maybe_leader, value));
+                self.push_action(Action::SendMessage(maybe_leader, command));
             } else {
-                todo!("{:?}", self.inner.role()) // TODO: queue this pending command and return
+                self.pending_proposals.push_back(Pending::Command(command));
             }
             return;
         }
 
         let position = self.inner.propose_command();
-        self.recent_commands.insert(position.index, value);
+        self.recent_commands.insert(position.index, command);
     }
 
     pub fn propose_command(&mut self, command: JsonLineValue) -> ProposalId {
