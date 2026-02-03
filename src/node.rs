@@ -878,7 +878,7 @@ mod tests {
         // Check that the query was redirected to the leader and eventually resolved
         let found_query = actions.iter().any(|(node_id, action)| {
             if let Action::Query { proposal_id } = action {
-                *node_id == nodes[0].id() && *proposal_id == query_proposal_id
+                *node_id == nodes[1].id() && *proposal_id == query_proposal_id
             } else {
                 false
             }
