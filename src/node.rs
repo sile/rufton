@@ -379,6 +379,7 @@ impl nojson::DisplayJson for Command {
                 f.member("proposal_id", proposal_id)?;
                 f.member("command", command)
             }),
+            Command::Query => f.object(|f| f.member("type", "Query")),
         }
     }
 }
@@ -409,6 +410,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
                     command,
                 })
             }
+            "Query" => Ok(Command::Query),
             ty => Err(value.invalid(format!("unknown command type: {ty}"))),
         }
     }
