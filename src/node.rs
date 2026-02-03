@@ -131,11 +131,34 @@ impl RaftNode {
         } else if let Some(maybe_leader_id) = self.inner.voted_for()
             && maybe_leader_id != self.id()
         {
-            let query_message = QueryMessage::Redirect { proposal_id };
+            let from = self.id();
+            let query_message = QueryMessage::Redirect { from, proposal_id };
             let message = JsonLineValue::new_internal(query_message);
             self.push_action(Action::SendMessage(maybe_leader_id, message));
         } else {
             self.pending_proposals.push(Pending::Query(proposal_id));
+        }
+    }
+
+    // TODO: refactor
+    fn propose_query_for_redirect(&mut self, from: raftbare::NodeId, proposal_id: ProposalId) {
+        if self.inner.role().is_leader() {
+            let command = Command::Query;
+            let position = if let Some(position) = self.get_next_broadcast_position() {
+                position
+            } else {
+                let value = JsonLineValue::new_internal(command);
+                let position = self.inner.propose_command();
+                self.recent_commands.insert(position.index, value);
+                position
+            };
+            todo!("send back message")
+        } else if let Some(maybe_leader_id) = self.inner.voted_for()
+            && maybe_leader_id != self.id()
+        {
+            let query_message = QueryMessage::Redirect { from, proposal_id };
+            let message = JsonLineValue::new_internal(query_message);
+            self.push_action(Action::SendMessage(maybe_leader_id, message));
         }
     }
 
@@ -202,12 +225,26 @@ impl RaftNode {
     }
 
     pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
+        // TODO: use match ty {}
         let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
             if let Ok(c) = Command::try_from(message_value.get()) {
                 // This is a redirected command
                 //
                 // TODO: Add redirect count limit
                 self.propose(c);
+                return true;
+            } else if let Ok(m) = QueryMessage::try_from(message_value.get()) {
+                match m {
+                    QueryMessage::Redirect { from, proposal_id } => {
+                        self.propose_query_for_redirect(from, proposal_id);
+                    }
+                    QueryMessage::Proposed {
+                        proposal_id,
+                        position,
+                    } => {
+                        self.pending_queries.insert((position, proposal_id));
+                    }
+                }
                 return true;
             } else {
                 return false;
