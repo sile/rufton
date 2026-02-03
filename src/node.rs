@@ -57,6 +57,7 @@ impl RaftNode {
             return;
         }
 
+        // TODO: in redirected case, this serialization can be eliminated
         let value = JsonLineValue::new_internal(command);
 
         if !self.inner.role().is_leader() {
@@ -245,8 +246,14 @@ impl RaftNode {
                 command,
             });
         }
-        self.applied_index = self.inner.commit_index();
-        // TODO: if leader send heartbeat if commit position proceeds (if raftbare already does not)
+        if self.applied_index < self.inner.commit_index() {
+            self.applied_index = self.inner.commit_index();
+
+            if self.inner.role().is_leader() {
+                // Invokes heartbeat to notify the new commit position to followers as fast as possible
+                self.inner.heartbeat();
+            }
+        }
 
         self.action_queue.pop_front()
     }
@@ -480,6 +487,7 @@ mod tests {
             Some(Action::AppendStorageEntry(_))
         ));
         assert!(matches!(node.next_action(), Some(Action::Commit { .. })));
+        assert_eq!(node.next_action(), Some(set_leader_timeout_action()));
         assert_eq!(node.next_action(), None);
 
         assert_eq!(node.machine.nodes.len(), 1);
@@ -532,7 +540,6 @@ mod tests {
                             }
                         }
                         Action::SendMessage(j, m) => {
-                            assert!(nodes[j.get() as usize].handle_message(&m));
                             let j = j.get() as usize;
                             assert!(nodes[j].handle_message(&m));
                         }
