@@ -18,7 +18,7 @@ pub struct RaftNode {
     pub applied_index: raftbare::LogIndex,
     pub dirty_members: bool,
     pub pending_queries: std::collections::BTreeSet<(raftbare::LogPosition, ProposalId)>,
-    pending_proposals: std::collections::VecDeque<Pending>,
+    pending_proposals: Vec<Pending>,
 }
 
 impl RaftNode {
@@ -34,7 +34,7 @@ impl RaftNode {
             applied_index: raftbare::LogIndex::ZERO,
             dirty_members: false,
             pending_queries: std::collections::BTreeSet::new(),
-            pending_proposals: std::collections::VecDeque::new(),
+            pending_proposals: Vec::new(),
         }
     }
 
@@ -80,7 +80,7 @@ impl RaftNode {
             {
                 self.push_action(Action::SendMessage(maybe_leader, command));
             } else {
-                self.pending_proposals.push_back(Pending::Command(command));
+                self.pending_proposals.push(Pending::Command(command));
             }
             return;
         }
@@ -128,8 +128,12 @@ impl RaftNode {
                 position
             };
             self.pending_queries.insert((position, proposal_id));
-        } else {
+        } else if let Some(maybe_leader_id) = self.inner.voted_for()
+            && maybe_leader_id != self.id()
+        {
             todo!()
+        } else {
+            self.pending_proposals.push(Pending::Query(proposal_id));
         }
     }
 
