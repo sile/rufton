@@ -589,13 +589,13 @@ mod tests {
         let actions = run_actions(&mut nodes);
         // Check that actions contain a Commit with the matching proposal_id
         let found_commit = actions.iter().any(|(node_id, action)| {
-            if *node_id == nodes[1].id()
-                && let Action::Commit {
-                    proposal_id: id, ..
-                } = action
+            if let Action::Commit {
+                proposal_id: id, ..
+            } = action
                 && *id == proposal_id
             {
-                true
+                dbg!(node_id, action);
+                *node_id == nodes[1].id()
             } else {
                 false
             }
