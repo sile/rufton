@@ -112,7 +112,11 @@ impl RaftNode {
 
     pub fn propose_query(&mut self) -> ProposalId {
         let proposal_id = self.next_proposal_id();
+        self.propose_query_inner(proposal_id);
+        proposal_id
+    }
 
+    fn propose_query_inner(&mut self, proposal_id: ProposalId) {
         if self.inner.role().is_leader() {
             let command = Command::Query;
             let position = if let Some(position) = self.get_next_broadcast_position() {
@@ -127,8 +131,6 @@ impl RaftNode {
         } else {
             todo!()
         }
-
-        proposal_id
     }
 
     fn next_proposal_id(&mut self) -> ProposalId {
@@ -230,7 +232,18 @@ impl RaftNode {
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
                 raftbare::Action::SetElectionTimeout => {
-                    self.push_action(Action::SetTimeout(self.inner.role()));
+                    let role = self.inner.role();
+                    for p in std::mem::take(&mut self.pending_proposals)
+                        .into_iter()
+                        .filter(|_| role.is_leader())
+                    {
+                        match p {
+                            Pending::Command(command) => self.propose_command_value(command),
+                            Pending::Query(id) => self.propose_query_inner(id),
+                        }
+                    }
+
+                    self.push_action(Action::SetTimeout(role));
                 }
                 raftbare::Action::SaveCurrentTerm => {
                     let term = self.inner.current_term();
