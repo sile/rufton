@@ -18,7 +18,7 @@ pub struct RaftNode {
     pub applied_index: raftbare::LogIndex,
     pub dirty_members: bool,
     pub pending_queries: std::collections::BTreeSet<(raftbare::LogPosition, ProposalId)>,
-    pending_proposals: Vec<Pending>,
+    pending_proposals: Vec<Pending>, // TODO: remove?
 }
 
 impl RaftNode {
@@ -421,6 +421,66 @@ impl std::fmt::Debug for JsonLineValue {
 impl std::fmt::Display for JsonLineValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.text())
+    }
+}
+
+// TODO
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueryMessage {
+    Redirect {
+        proposal_id: ProposalId,
+    },
+    Proposed {
+        proposal_id: ProposalId,
+        position: raftbare::LogPosition,
+    },
+}
+
+impl nojson::DisplayJson for QueryMessage {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        match self {
+            QueryMessage::Redirect { proposal_id } => f.object(|f| {
+                f.member("type", "Redirect")?;
+                f.member("proposal_id", proposal_id)
+            }),
+            QueryMessage::Proposed {
+                proposal_id,
+                position,
+            } => f.object(|f| {
+                f.member("type", "Proposed")?;
+                f.member("proposal_id", proposal_id)?;
+                f.member("term", position.term.get())?;
+                f.member("index", position.index.get())
+            }),
+        }
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let ty = value
+            .to_member("type")?
+            .required()?
+            .to_unquoted_string_str()?;
+        match ty.as_ref() {
+            "Redirect" => {
+                let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
+                Ok(QueryMessage::Redirect { proposal_id })
+            }
+            "Proposed" => {
+                let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
+                let term = raftbare::Term::new(value.to_member("term")?.required()?.try_into()?);
+                let index =
+                    raftbare::LogIndex::new(value.to_member("index")?.required()?.try_into()?);
+                Ok(QueryMessage::Proposed {
+                    proposal_id,
+                    position: raftbare::LogPosition { term, index },
+                })
+            }
+            ty => Err(value.invalid(format!("unknown query message type: {ty}"))),
+        }
     }
 }
 
