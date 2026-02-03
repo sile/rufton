@@ -87,13 +87,35 @@ impl RaftNode {
         proposal_id
     }
 
+    fn get_next_broadcast_position(&self) -> Option<raftbare::LogPosition> {
+        if let Some(raftbare::Message::AppendEntriesCall { entries, .. }) =
+            &self.inner.actions().broadcast_message
+            && let Some((pos, _)) = entries.iter_with_positions().next()
+        {
+            Some(pos)
+        } else {
+            None
+        }
+    }
+
     pub fn propose_query(&mut self) -> ProposalId {
         let proposal_id = self.next_proposal_id();
-        /*let command = Command::Apply {
-            proposal_id,
-            command,
-        };*/
-        self.propose(command);
+
+        if self.inner.role().is_leader() {
+            let command = Command::Query;
+            let position = if let Some(position) = self.get_next_broadcast_position() {
+                position
+            } else {
+                let value = JsonLineValue::new_internal(command);
+                let position = self.inner.propose_command();
+                self.recent_commands.insert(position.index, value);
+                position
+            };
+            self.pending_queries.insert((position, proposal_id));
+        } else {
+            todo!()
+        }
+
         proposal_id
     }
 
@@ -284,7 +306,7 @@ impl RaftNode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ProposalId {
     node_id: raftbare::NodeId,
     instance_id: u64,
