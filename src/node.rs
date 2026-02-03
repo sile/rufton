@@ -345,7 +345,8 @@ impl RaftNode {
                     None
                 }
                 "Apply" => Some(command),
-                _ => panic!("bug"),
+                "Query" => None,
+                ty => panic!("bug: {ty}"),
             };
 
             self.push_action(Action::Commit {
@@ -813,6 +814,78 @@ mod tests {
         assert!(
             found_commit,
             "Commit action with matching proposal_id should be in actions"
+        );
+    }
+
+    #[test]
+    fn propose_query() {
+        let mut node0 = RaftNode::new(node_id(0), 0);
+        let node1 = RaftNode::new(node_id(1), 1);
+
+        assert!(node0.init_cluster());
+        while node0.next_action().is_some() {}
+
+        node0.propose_add_node(node1.id());
+
+        let mut nodes = [node0, node1];
+        run_actions(&mut nodes);
+
+        // node0 is the leader, node1 is a follower
+        assert!(nodes[0].inner.role().is_leader());
+        assert!(!nodes[1].inner.role().is_leader());
+
+        // Propose a query on the leader
+        let query_proposal_id = nodes[0].propose_query();
+
+        let actions = run_actions(&mut nodes);
+
+        // Check that a Query action was generated with the matching proposal_id
+        let found_query = actions.iter().any(|(node_id, action)| {
+            if let Action::Query { proposal_id } = action {
+                *node_id == nodes[0].id() && *proposal_id == query_proposal_id
+            } else {
+                false
+            }
+        });
+        assert!(
+            found_query,
+            "Query action with matching proposal_id should be returned by leader"
+        );
+    }
+
+    #[test]
+    fn propose_query_on_non_leader_node() {
+        let mut node0 = RaftNode::new(node_id(0), 0);
+        let node1 = RaftNode::new(node_id(1), 1);
+
+        assert!(node0.init_cluster());
+        while node0.next_action().is_some() {}
+
+        node0.propose_add_node(node1.id());
+
+        let mut nodes = [node0, node1];
+        run_actions(&mut nodes);
+
+        // node0 is the leader, node1 is a follower
+        assert!(nodes[0].inner.role().is_leader());
+        assert!(!nodes[1].inner.role().is_leader());
+
+        // Propose a query on the non-leader (node1)
+        let query_proposal_id = nodes[1].propose_query();
+
+        let actions = run_actions(&mut nodes);
+
+        // Check that the query was redirected to the leader and eventually resolved
+        let found_query = actions.iter().any(|(node_id, action)| {
+            if let Action::Query { proposal_id } = action {
+                *node_id == nodes[0].id() && *proposal_id == query_proposal_id
+            } else {
+                false
+            }
+        });
+        assert!(
+            found_query,
+            "Query should be redirected to leader and resolved"
         );
     }
 
