@@ -152,7 +152,12 @@ impl RaftNode {
                 self.recent_commands.insert(position.index, value);
                 position
             };
-            todo!("send back message")
+            let query_message = QueryMessage::Proposed {
+                proposal_id,
+                position,
+            };
+            let message = JsonLineValue::new_internal(query_message);
+            self.push_action(Action::SendMessage(from, message));
         } else if let Some(maybe_leader_id) = self.inner.voted_for()
             && maybe_leader_id != self.id()
         {
