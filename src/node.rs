@@ -56,12 +56,20 @@ impl RaftNode {
             return Err(NotInitialized);
         }
 
+        let value = JsonLineValue::new_internal(command);
+
         if !self.inner.role().is_leader() {
-            todo!("{:?}", self.inner.role())
+            if let Some(maybe_leader) = self.inner.voted_for()
+                && maybe_leader != self.id()
+            {
+                self.push_action(Action::SendMessage(maybe_leader, value));
+                return Ok(());
+            } else {
+                todo!("{:?}", self.inner.role()) // TODO: queue this pending command and return
+            }
         }
 
         let position = self.inner.propose_command();
-        let value = JsonLineValue::new_internal(command);
         self.recent_commands.insert(position.index, value);
 
         Ok(())
