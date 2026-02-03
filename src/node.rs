@@ -589,12 +589,9 @@ mod tests {
 
         // Try to propose a command to the non-leader (node1)
         let command = JsonLineValue::new_internal("test_command");
-        let result = nodes[1].propose_command(command);
+        let proposal_id = nodes[1].propose_command(command).expect("ok");
 
-        // Should fail or redirect since node1 is not the leader
-        assert!(result.is_err() || matches!(result, Ok(_)));
-        // The actual behavior depends on the implementation of propose_command
-        // which currently has a todo!() placeholder
+        run_actions(&mut nodes);
     }
 
     fn append_storage_entry_action(json: &str) -> Action {
