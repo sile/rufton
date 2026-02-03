@@ -354,7 +354,7 @@ impl nojson::DisplayJson for Command {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
             Command::AddNode { proposal_id, id } => f.object(|f| {
-                f.member("type", "AddNode")?;
+                f.member("type", "AddNode")?; // TODO: add prefix to indicate internal messages
                 f.member("proposal_id", proposal_id)?;
                 f.member("id", id.get())
             }),
