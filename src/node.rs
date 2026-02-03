@@ -467,6 +467,7 @@ impl std::fmt::Display for JsonLineValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryMessage {
     Redirect {
+        from: raftbare::NodeId,
         proposal_id: ProposalId,
     },
     Proposed {
@@ -478,8 +479,9 @@ pub enum QueryMessage {
 impl nojson::DisplayJson for QueryMessage {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
-            QueryMessage::Redirect { proposal_id } => f.object(|f| {
+            QueryMessage::Redirect { from, proposal_id } => f.object(|f| {
                 f.member("type", "Redirect")?;
+                f.member("from", from.get())?;
                 f.member("proposal_id", proposal_id)
             }),
             QueryMessage::Proposed {
@@ -505,8 +507,12 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
             .to_unquoted_string_str()?;
         match ty.as_ref() {
             "Redirect" => {
+                let from: u64 = value.to_member("from")?.required()?.try_into()?;
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
-                Ok(QueryMessage::Redirect { proposal_id })
+                Ok(QueryMessage::Redirect {
+                    from: raftbare::NodeId::new(from),
+                    proposal_id,
+                })
             }
             "Proposed" => {
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
