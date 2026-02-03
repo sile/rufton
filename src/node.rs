@@ -41,7 +41,7 @@ impl RaftNode {
         self.inner.create_cluster(&initial_members);
         self.initialized = true;
 
-        self.propose_add_node(self.inner.id()).expect("infallible");
+        self.propose_add_node(self.inner.id());
 
         true
     }
@@ -50,10 +50,11 @@ impl RaftNode {
     // - Taking too long time (simple timeout)
     // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
     // - Redirected proposal was discarded by any reasons (e.g. node down, redirect limit reached)
+    // - Uninitialized cluster
 
-    fn propose(&mut self, command: Command) -> Result<(), NotInitialized> {
+    fn propose(&mut self, command: Command) {
         if !self.initialized {
-            return Err(NotInitialized);
+            return;
         }
 
         let value = JsonLineValue::new_internal(command);
@@ -63,29 +64,24 @@ impl RaftNode {
                 && maybe_leader != self.id()
             {
                 self.push_action(Action::SendMessage(maybe_leader, value));
-                return Ok(());
             } else {
                 todo!("{:?}", self.inner.role()) // TODO: queue this pending command and return
             }
+            return;
         }
 
         let position = self.inner.propose_command();
         self.recent_commands.insert(position.index, value);
-
-        Ok(())
     }
 
-    pub fn propose_command(
-        &mut self,
-        command: JsonLineValue,
-    ) -> Result<ProposalId, NotInitialized> {
+    pub fn propose_command(&mut self, command: JsonLineValue) -> ProposalId {
         let proposal_id = self.next_proposal_id();
         let command = Command::Apply {
             proposal_id,
             command,
         };
-        self.propose(command)?;
-        Ok(proposal_id)
+        self.propose(command);
+        proposal_id
     }
 
     fn next_proposal_id(&mut self) -> ProposalId {
@@ -98,11 +94,11 @@ impl RaftNode {
         proposal_id
     }
 
-    pub fn propose_add_node(&mut self, id: raftbare::NodeId) -> Result<ProposalId, NotInitialized> {
+    pub fn propose_add_node(&mut self, id: raftbare::NodeId) -> ProposalId {
         let proposal_id = self.next_proposal_id();
         let command = Command::AddNode { proposal_id, id };
-        self.propose(command)?;
-        Ok(proposal_id)
+        self.propose(command);
+        proposal_id
     }
 
     fn push_action(&mut self, action: Action) {
@@ -260,17 +256,6 @@ impl RaftNode {
         Ok(())
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NotInitialized;
-
-impl std::fmt::Display for NotInitialized {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Raft node is not initialized")
-    }
-}
-
-impl std::error::Error for NotInitialized {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProposalId {
@@ -499,7 +484,7 @@ mod tests {
         assert!(node.init_cluster());
         while node.next_action().is_some() {}
 
-        let proposal_id = node.propose_add_node(node_id(1)).expect("ok");
+        let proposal_id = node.propose_add_node(node_id(1));
 
         let mut found_commit = false;
         while let Some(action) = node.next_action() {
@@ -561,7 +546,7 @@ mod tests {
         assert!(node0.init_cluster());
         while node0.next_action().is_some() {}
 
-        node0.propose_add_node(node1.id()).expect("ok");
+        node0.propose_add_node(node1.id());
 
         let mut nodes = [node0, node1];
         run_actions(&mut nodes);
@@ -578,7 +563,7 @@ mod tests {
         assert!(node0.init_cluster());
         while node0.next_action().is_some() {}
 
-        node0.propose_add_node(node1.id()).expect("ok");
+        node0.propose_add_node(node1.id());
 
         let mut nodes = [node0, node1];
         run_actions(&mut nodes);
@@ -589,7 +574,7 @@ mod tests {
 
         // Try to propose a command to the non-leader (node1)
         let command = JsonLineValue::new_internal("test_command");
-        let proposal_id = nodes[1].propose_command(command).expect("ok");
+        let proposal_id = nodes[1].propose_command(command); 
 
         run_actions(&mut nodes);
     }
