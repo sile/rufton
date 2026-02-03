@@ -131,7 +131,9 @@ impl RaftNode {
         } else if let Some(maybe_leader_id) = self.inner.voted_for()
             && maybe_leader_id != self.id()
         {
-            todo!()
+            let query_message = QueryMessage::Redirect { proposal_id };
+            let message = JsonLineValue::new_internal(query_message);
+            self.push_action(Action::SendMessage(maybe_leader_id, message));
         } else {
             self.pending_proposals.push(Pending::Query(proposal_id));
         }
