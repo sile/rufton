@@ -514,13 +514,15 @@ mod tests {
         assert!(node.machine.nodes.contains(&node_id(1)));
     }
 
-    fn run_actions(nodes: &mut [RaftNode]) {
+    fn run_actions(nodes: &mut [RaftNode]) -> Vec<(raftbare::NodeId, Action)> {
+        let mut actions = Vec::new();
         for _ in 0..1000 {
             let mut did_something = false;
 
             for i in 0..nodes.len() {
                 while let Some(action) = nodes[i].next_action() {
                     did_something = true;
+                    actions.push((nodes[i].id(), action.clone()));
                     match action {
                         Action::BroadcastMessage(m) => {
                             for j in 0..nodes.len() {
@@ -540,7 +542,7 @@ mod tests {
             }
 
             if !did_something {
-                return;
+                return actions;
             }
         }
         panic!()
@@ -584,7 +586,24 @@ mod tests {
         let command = JsonLineValue::new_internal("test_command");
         let proposal_id = nodes[1].propose_command(command);
 
-        run_actions(&mut nodes);
+        let actions = run_actions(&mut nodes);
+        // Check that actions contain a Commit with the matching proposal_id
+        let found_commit = actions.iter().any(|(node_id, action)| {
+            if *node_id == nodes[1].id()
+                && let Action::Commit {
+                    proposal_id: id, ..
+                } = action
+                && *id == proposal_id
+            {
+                true
+            } else {
+                false
+            }
+        });
+        assert!(
+            found_commit,
+            "Commit action with matching proposal_id should be in actions"
+        );
     }
 
     fn append_storage_entry_action(json: &str) -> Action {
