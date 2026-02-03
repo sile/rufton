@@ -148,7 +148,15 @@ impl RaftNode {
 
     pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
         let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
-            return false;
+            if let Ok(c) = Command::try_from(message_value.get()) {
+                // This is a redirected command
+                //
+                // TODO: Add redirect count limit
+                self.propose(c);
+                return true;
+            } else {
+                return false;
+            }
         };
         if !self.initialized {
             self.initialized = true;
@@ -574,7 +582,7 @@ mod tests {
 
         // Try to propose a command to the non-leader (node1)
         let command = JsonLineValue::new_internal("test_command");
-        let proposal_id = nodes[1].propose_command(command); 
+        let proposal_id = nodes[1].propose_command(command);
 
         run_actions(&mut nodes);
     }
