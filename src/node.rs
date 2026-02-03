@@ -56,6 +56,9 @@ impl RaftNode {
         true
     }
 
+    // TODO: snapshot
+    // TODO: split recent commands
+
     // NOTE: Propsals should be treated as timeout by clients in the following cases:
     // - Taking too long time (simple timeout)
     // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
