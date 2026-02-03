@@ -352,6 +352,13 @@ impl JsonLineValue {
     {
         self.get().to_member(name)?.required()?.try_into()
     }
+
+    fn get_optional_member<'a, T>(&'a self, name: &str) -> Result<Option<T>, nojson::JsonParseError>
+    where
+        T: TryFrom<nojson::RawJsonValue<'a, 'a>, Error = nojson::JsonParseError>,
+    {
+        self.get().to_member(name)?.try_into()
+    }
 }
 
 impl nojson::DisplayJson for JsonLineValue {
@@ -445,7 +452,7 @@ pub enum Action {
     BroadcastMessage(JsonLineValue),
     SendMessage(raftbare::NodeId, JsonLineValue),
     Commit {
-        proposal_id: ProposalId,
+        proposal_id: Option<ProposalId>,
         index: raftbare::LogIndex,
         command: Option<JsonLineValue>,
     },
@@ -545,7 +552,7 @@ mod tests {
                 proposal_id: commit_proposal_id,
                 ..
             } = action
-                && commit_proposal_id == proposal_id
+                && commit_proposal_id == Some(proposal_id)
             {
                 found_commit = true;
                 break;
@@ -637,7 +644,7 @@ mod tests {
             if let Action::Commit {
                 proposal_id: id, ..
             } = action
-                && *id == proposal_id
+                && *id == Some(proposal_id)
             {
                 dbg!(node_id, action);
                 *node_id == nodes[1].id()
