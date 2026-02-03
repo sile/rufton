@@ -51,35 +51,49 @@ impl RaftNode {
     // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
     // - Redirected proposal was discarded by any reasons (e.g. node down, redirect limit reached)
 
-    pub fn propose_command(
-        &mut self,
-        command: JsonLineValue,
-    ) -> Result<ProposalId, NotInitialized> {
-        todo!()
-    }
-
-    pub fn propose_add_node(&mut self, id: raftbare::NodeId) -> Result<ProposalId, NotInitialized> {
+    fn propose(&mut self, command: Command) -> Result<(), NotInitialized> {
         if !self.initialized {
             return Err(NotInitialized);
         }
-
-        let proposal_id = ProposalId {
-            node_id: self.inner.id(),
-            instance_id: self.instance_id,
-            local_seqno: self.local_command_seqno,
-        };
-        self.local_command_seqno += 1;
 
         if !self.inner.role().is_leader() {
             todo!("{:?}", self.inner.role())
         }
 
         let position = self.inner.propose_command();
-
-        let command = Command::AddNode { proposal_id, id };
         let value = JsonLineValue::new_internal(command);
         self.recent_commands.insert(position.index, value);
 
+        Ok(())
+    }
+
+    pub fn propose_command(
+        &mut self,
+        command: JsonLineValue,
+    ) -> Result<ProposalId, NotInitialized> {
+        let proposal_id = self.next_proposal_id();
+        let command = Command::Apply {
+            proposal_id,
+            command,
+        };
+        self.propose(command)?;
+        Ok(proposal_id)
+    }
+
+    fn next_proposal_id(&mut self) -> ProposalId {
+        let proposal_id = ProposalId {
+            node_id: self.inner.id(),
+            instance_id: self.instance_id,
+            local_seqno: self.local_command_seqno,
+        };
+        self.local_command_seqno += 1;
+        proposal_id
+    }
+
+    pub fn propose_add_node(&mut self, id: raftbare::NodeId) -> Result<ProposalId, NotInitialized> {
+        let proposal_id = self.next_proposal_id();
+        let command = Command::AddNode { proposal_id, id };
+        self.propose(command)?;
         Ok(proposal_id)
     }
 
@@ -184,6 +198,7 @@ impl RaftNode {
                     self.push_action(Action::AppendStorageEntry(value));
                 }
                 raftbare::Action::SendMessage(node_id, message) => {
+                    // TODO: check recent commands and take snapshot if message contains dropped entries
                     let message = JsonLineValue::new_internal(nojson::json(|f| {
                         crate::conv::fmt_message(f, &message, &self.recent_commands)
                     }));
@@ -219,6 +234,7 @@ impl RaftNode {
             });
         }
         self.applied_index = self.inner.commit_index();
+        // TODO: if leader send heartbeat if commit position proceeds (if raftbare already does not)
 
         self.action_queue.pop_front()
     }
