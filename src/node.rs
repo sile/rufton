@@ -263,7 +263,8 @@ impl RaftNode {
             let Some(command) = self.recent_commands.get(&index).cloned() else {
                 continue;
             };
-            let proposal_id = command.get_member("proposal_id").expect("bug");
+
+            let proposal_id = command.get_optional_member("proposal_id").expect("bug");
 
             let command = match command.get_member::<String>("type").expect("bug").as_str() {
                 "AddNode" => {
@@ -280,6 +281,21 @@ impl RaftNode {
                 command,
             });
         }
+
+        while let Some(&(position, proposal_id)) = self.pending_queries.first() {
+            let status = self.inner.get_commit_status(position);
+            match status {
+                raftbare::CommitStatus::InProgress => break,
+                raftbare::CommitStatus::Rejected | raftbare::CommitStatus::Unknown => {
+                    self.pending_queries.pop_first();
+                }
+                raftbare::CommitStatus::Committed => {
+                    self.pending_queries.pop_first();
+                    self.push_action(Action::Query { proposal_id });
+                }
+            }
+        }
+
         if self.applied_index < self.inner.commit_index() {
             self.applied_index = self.inner.commit_index();
 
@@ -455,6 +471,9 @@ pub enum Action {
         proposal_id: Option<ProposalId>,
         index: raftbare::LogIndex,
         command: Option<JsonLineValue>,
+    },
+    Query {
+        proposal_id: ProposalId,
     },
 }
 
