@@ -11,6 +11,7 @@ pub struct RaftNode {
     pub local_command_seqno: u64,
     pub applied_index: raftbare::LogIndex,
     pub dirty_members: bool,
+    pub pending_queries: std::collections::BTreeSet<(raftbare::LogPosition, ProposalId)>,
 }
 
 impl RaftNode {
@@ -25,6 +26,7 @@ impl RaftNode {
             local_command_seqno: 0,
             applied_index: raftbare::LogIndex::ZERO,
             dirty_members: false,
+            pending_queries: std::collections::BTreeSet::new(),
         }
     }
 
@@ -81,6 +83,16 @@ impl RaftNode {
             proposal_id,
             command,
         };
+        self.propose(command);
+        proposal_id
+    }
+
+    pub fn propose_query(&mut self) -> ProposalId {
+        let proposal_id = self.next_proposal_id();
+        /*let command = Command::Apply {
+            proposal_id,
+            command,
+        };*/
         self.propose(command);
         proposal_id
     }
@@ -348,6 +360,7 @@ pub enum Command {
         proposal_id: ProposalId,
         command: JsonLineValue,
     },
+    Query,
 }
 
 impl nojson::DisplayJson for Command {
@@ -596,6 +609,7 @@ mod tests {
         let actions = run_actions(&mut nodes);
         // Check that actions contain a Commit with the matching proposal_id
         let found_commit = actions.iter().any(|(node_id, action)| {
+            dbg!(node_id, action);
             if let Action::Commit {
                 proposal_id: id, ..
             } = action
