@@ -314,6 +314,7 @@ impl RaftNode {
             self.inner.heartbeat();
         }
 
+        let mut after_commit_actions = Vec::new();
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
                 raftbare::Action::SetElectionTimeout => {
@@ -361,7 +362,7 @@ impl RaftNode {
                     self.push_action(Action::SendMessage(node_id, message));
                 }
                 raftbare::Action::InstallSnapshot(dst) => {
-                    self.push_action(Action::SendSnapshot(dst));
+                    after_commit_actions.push(Action::SendSnapshot(dst));
                 }
             }
         }
@@ -405,6 +406,10 @@ impl RaftNode {
                     self.push_action(Action::Query { proposal_id });
                 }
             }
+        }
+
+        for a in after_commit_actions {
+            self.push_action(a);
         }
 
         self.action_queue.pop_front()
