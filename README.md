@@ -1,3 +1,5 @@
-raftjson
-========
+rufton
+======
+
+Rust + Raft + JSON = rufton
 

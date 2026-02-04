@@ -38,7 +38,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a9974bcc87328d36e891c1780e218108ff23bc3e18cbcc10b45d6933f9f9176"
 
 [[package]]
-name = "raftjson"
+name = "rufton"
 version = "0.1.0"
 dependencies = [
  "mio",
