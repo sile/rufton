@@ -409,10 +409,47 @@ impl RaftNode {
         }
 
         for a in after_commit_actions {
+            // TODO: Should use separate queue (set of dst?)
             self.push_action(a);
         }
 
         self.action_queue.pop_front()
+    }
+
+    pub fn get_snapshot(&self) -> (raftbare::LogIndex, JsonLineValue) {
+        let i = self.applied_index;
+        let (position, config) = self.inner.log().get_position_and_config(i).expect("bug");
+        let json = nojson::object(|f| {
+            // TODO: Add utility funs
+            f.member(
+                "position",
+                nojson::object(|f| crate::conv::fmt_log_position_members(f, position)),
+            )?;
+            f.member(
+                "config",
+                nojson::object(|f| {
+                    f.member(
+                        "voters",
+                        nojson::array(|f| f.elements(config.voters.iter().map(|v| v.get()))),
+                    )?;
+                    f.member(
+                        "new_voters",
+                        nojson::array(|f| f.elements(config.new_voters.iter().map(|v| v.get()))),
+                    )
+                }),
+            )?;
+            f.member(
+                "machine",
+                nojson::object(|f| {
+                    f.member(
+                        "nodes",
+                        nojson::array(|f| f.elements(self.machine.nodes.iter().map(|n| n.get()))),
+                    )
+                }),
+            )
+        });
+        let value = JsonLineValue::new_internal(json);
+        (i, value)
     }
 
     fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
