@@ -298,6 +298,8 @@ impl RaftNode {
         true
     }
 
+    // TODO: handle_timeout
+
     pub fn next_action(&mut self) -> Option<Action> {
         if !self.initialized {
             return None;
@@ -307,6 +309,8 @@ impl RaftNode {
 
         if self.applied_index < self.inner.commit_index() && self.inner.role().is_leader() {
             // Invokes heartbeat to notify the new commit position to followers as fast as possible
+            //
+            // This would affect the result of inner.actions_mut(). So call it before that (minor optimization).
             self.inner.heartbeat();
         }
 
