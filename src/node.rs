@@ -56,6 +56,20 @@ impl RaftNode {
         true
     }
 
+    pub fn recent_commands(&self) -> &RecentCommands {
+        &self.recent_commands
+    }
+
+    pub fn strip_recent_commands(&mut self, index: raftbare::LogIndex) -> bool {
+        if index > self.applied_index {
+            return false;
+        }
+
+        let i = raftbare::LogIndex::new(index.get() + 1);
+        self.recent_commands = self.recent_commands.split_off(&i);
+        true
+    }
+
     // TODO: snapshot
     // TODO: split recent commands
 
