@@ -95,9 +95,12 @@ impl RaftNode {
         instance_id: u64,
         snapshot: Option<JsonLineValue>,
         storage_entries: &[JsonLineValue],
-    ) -> Option<Self> {
+    ) -> Result<Self, nojson::JsonParseError> {
         let (mut position, mut config, machine) = match snapshot {
-            Some(snapshot_value) => Self::parse_snapshot_json(&snapshot_value).ok()?,
+            Some(snapshot_value) => {
+                let (pos, cfg, m) = Self::parse_snapshot_json(&snapshot_value)?;
+                (pos, cfg, m)
+            }
             None => (
                 raftbare::LogPosition::ZERO,
                 raftbare::ClusterConfig::new(),
@@ -191,7 +194,10 @@ impl RaftNode {
                                 recent_commands.insert(current_index, command);
                                 raftbare::LogEntry::Command
                             }
-                            _ => return None,
+                            _ => {
+                                return Err(entry_value
+                                    .invalid(format!("unknown entry type: {}", entry_type)));
+                            }
                         };
 
                         log_entries.push(log_entry);
@@ -204,7 +210,7 @@ impl RaftNode {
         let log = raftbare::Log::new(config, log_entries);
         let inner = raftbare::Node::restart(id, current_term, voted_for, log);
 
-        Some(Self {
+        Ok(Self {
             inner,
             machine,
             action_queue: std::collections::VecDeque::new(),
