@@ -66,13 +66,13 @@ impl RaftNode {
         let mut config = raftbare::ClusterConfig::new();
 
         let voters_json = config_json.to_member("voters")?.required()?;
-        for voter_id in voters_json.iter() {
+        for voter_id in voters_json.to_array()? {
             let id: u64 = voter_id.try_into()?;
             config.voters.insert(raftbare::NodeId::new(id));
         }
 
         let new_voters_json = config_json.to_member("new_voters")?.required()?;
-        for voter_id in new_voters_json.iter() {
+        for voter_id in new_voters_json.to_array()? {
             let id: u64 = voter_id.try_into()?;
             config.new_voters.insert(raftbare::NodeId::new(id));
         }
@@ -82,7 +82,7 @@ impl RaftNode {
         let nodes_json = machine_json.to_member("nodes")?.required()?;
         let mut machine = RaftNodeStateMachine::default();
 
-        for node_id in nodes_json.iter() {
+        for node_id in nodes_json.to_array()? {
             let id: u64 = node_id.try_into()?;
             machine.nodes.insert(raftbare::NodeId::new(id));
         }
@@ -95,7 +95,7 @@ impl RaftNode {
         instance_id: u64,
         snapshot: JsonLineValue,
     ) -> Option<Self> {
-        let (position, config, machine) = parse_snapshot_json(&snapshot).ok()?;
+        let (position, config, machine) = Self::parse_snapshot_json(&snapshot).ok()?;
 
         // Create log with snapshot
         let log_entries = raftbare::LogEntries::new(position);
