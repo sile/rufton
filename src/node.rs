@@ -38,12 +38,85 @@ impl RaftNode {
         }
     }
 
+    fn parse_snapshot_json(
+        snapshot: &JsonLineValue,
+    ) -> Result<
+        (
+            raftbare::LogPosition,
+            raftbare::ClusterConfig,
+            RaftNodeStateMachine,
+        ),
+        nojson::JsonParseError,
+    > {
+        let snapshot_json = snapshot.get();
+
+        // Extract position
+        let position_json = snapshot_json.to_member("position")?.required()?;
+        let position_term =
+            raftbare::Term::new(position_json.to_member("term")?.required()?.try_into()?);
+        let position_index =
+            raftbare::LogIndex::new(position_json.to_member("index")?.required()?.try_into()?);
+        let position = raftbare::LogPosition {
+            term: position_term,
+            index: position_index,
+        };
+
+        // Extract config
+        let config_json = snapshot_json.to_member("config")?.required()?;
+        let mut config = raftbare::ClusterConfig::new();
+
+        let voters_json = config_json.to_member("voters")?.required()?;
+        for voter_id in voters_json.iter() {
+            let id: u64 = voter_id.try_into()?;
+            config.voters.insert(raftbare::NodeId::new(id));
+        }
+
+        let new_voters_json = config_json.to_member("new_voters")?.required()?;
+        for voter_id in new_voters_json.iter() {
+            let id: u64 = voter_id.try_into()?;
+            config.new_voters.insert(raftbare::NodeId::new(id));
+        }
+
+        // Extract machine state
+        let machine_json = snapshot_json.to_member("machine")?.required()?;
+        let nodes_json = machine_json.to_member("nodes")?.required()?;
+        let mut machine = RaftNodeStateMachine::default();
+
+        for node_id in nodes_json.iter() {
+            let id: u64 = node_id.try_into()?;
+            machine.nodes.insert(raftbare::NodeId::new(id));
+        }
+
+        Ok((position, config, machine))
+    }
+
     pub fn restart(
         id: raftbare::NodeId,
         instance_id: u64,
         snapshot: JsonLineValue,
     ) -> Option<Self> {
-        todo!()
+        let (position, config, machine) = parse_snapshot_json(&snapshot).ok()?;
+
+        // Create log with snapshot
+        let log_entries = raftbare::LogEntries::new(position);
+        let log = raftbare::Log::new(config, log_entries);
+
+        // Restart raftbare node
+        let inner = raftbare::Node::restart(id, position.term, None, log);
+
+        Some(Self {
+            inner,
+            machine,
+            action_queue: std::collections::VecDeque::new(),
+            recent_commands: std::collections::BTreeMap::new(),
+            initialized: true,
+            instance_id,
+            local_command_seqno: 0,
+            applied_index: position.index,
+            dirty_members: false,
+            pending_queries: std::collections::BTreeSet::new(),
+            pending_proposals: Vec::new(),
+        })
     }
 
     pub fn id(&self) -> raftbare::NodeId {
