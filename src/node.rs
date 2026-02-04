@@ -60,7 +60,7 @@ impl RaftNode {
         &self.recent_commands
     }
 
-    pub fn strip_recent_commands(&mut self, index: raftbare::LogIndex) -> bool {
+    pub fn strip_memory_log(&mut self, index: raftbare::LogIndex) -> bool {
         if index > self.applied_index {
             return false;
         }
