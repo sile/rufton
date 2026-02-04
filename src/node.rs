@@ -305,6 +305,11 @@ impl RaftNode {
 
         self.maybe_sync_raft_members();
 
+        if self.applied_index < self.inner.commit_index() && self.inner.role().is_leader() {
+            // Invokes heartbeat to notify the new commit position to followers as fast as possible
+            self.inner.heartbeat();
+        }
+
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
                 raftbare::Action::SetElectionTimeout => {
@@ -382,6 +387,7 @@ impl RaftNode {
                 command,
             });
         }
+        self.applied_index = self.inner.commit_index();
 
         while let Some(&(position, proposal_id)) = self.pending_queries.first() {
             let status = self.inner.get_commit_status(position);
@@ -394,15 +400,6 @@ impl RaftNode {
                     self.pending_queries.pop_first();
                     self.push_action(Action::Query { proposal_id });
                 }
-            }
-        }
-
-        if self.applied_index < self.inner.commit_index() {
-            self.applied_index = self.inner.commit_index();
-
-            if self.inner.role().is_leader() {
-                // Invokes heartbeat to notify the new commit position to followers as fast as possible
-                self.inner.heartbeat();
             }
         }
 
@@ -718,7 +715,6 @@ mod tests {
             Some(Action::AppendStorageEntry(_))
         ));
         assert!(matches!(node.next_action(), Some(Action::Commit { .. })));
-        assert_eq!(node.next_action(), Some(set_leader_timeout_action()));
         assert_eq!(node.next_action(), None);
 
         assert_eq!(node.machine.nodes.len(), 1);
