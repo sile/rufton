@@ -6,6 +6,7 @@ enum Pending {
     Query(ProposalId),
 }
 
+// TODO: Clone
 #[derive(Debug)]
 pub struct RaftNode {
     pub inner: raftbare::Node,
@@ -442,6 +443,10 @@ impl RaftNode {
         }
 
         self.dirty_members = false;
+    }
+
+    pub fn handle_timeout(&mut self) {
+        self.inner.handle_election_timeout();
     }
 
     pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
