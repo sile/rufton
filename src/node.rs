@@ -916,6 +916,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn strip_memory_log() {
+        let mut node0 = RaftNode::new(node_id(0), 0);
+
+        // Create single node cluster
+        assert!(node0.init_cluster());
+        while node0.next_action().is_some() {}
+
+        // Propose and commit some commands
+        let command1 = JsonLineValue::new_internal("command1");
+        let _proposal_id1 = node0.propose_command(command1);
+        while node0.next_action().is_some() {}
+
+        let command2 = JsonLineValue::new_internal("command2");
+        let _proposal_id2 = node0.propose_command(command2);
+        while node0.next_action().is_some() {}
+
+        // Get the current commit index before stripping
+        let commit_index = node0.inner.commit_index();
+        assert!(commit_index.get() > 0);
+
+        // Strip memory log until the commit index
+        assert!(node0.strip_memory_log(commit_index));
+
+        // Verify recent_commands was trimmed
+        let remaining_commands: Vec<_> = node0.recent_commands.keys().cloned().collect();
+        assert!(
+            remaining_commands.is_empty()
+                || remaining_commands.iter().all(|idx| *idx > commit_index)
+        );
+
+        // Add a new node and verify it can sync
+        let node1 = RaftNode::new(node_id(1), 1);
+        node0.propose_add_node(node1.id());
+
+        let mut nodes = [node0, node1];
+        run_actions(&mut nodes);
+
+        // Verify the new node synced and has the same cluster state
+        assert_eq!(nodes[0].machine.nodes.len(), 2);
+        assert_eq!(nodes[1].machine.nodes.len(), 2);
+        assert!(nodes[1].machine.nodes.contains(&node_id(0)));
+        assert!(nodes[1].machine.nodes.contains(&node_id(1)));
+    }
+
     fn append_storage_entry_action(json: &str) -> Action {
         let raw_json = nojson::RawJsonOwned::parse(json.to_string()).expect("invalid json");
         let value = JsonLineValue(std::sync::Arc::new(raw_json));
