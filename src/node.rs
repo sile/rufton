@@ -65,13 +65,24 @@ impl RaftNode {
             return false;
         }
 
+        let Some((position, config)) = self.inner.log().get_position_and_config(index) else {
+            return false;
+        };
+
+        // TODO: add note
+        if !self
+            .inner
+            .handle_snapshot_installed(position, config.clone())
+        {
+            return false;
+        }
+
         let i = raftbare::LogIndex::new(index.get() + 1);
         self.recent_commands = self.recent_commands.split_off(&i);
         true
     }
 
     // TODO: snapshot
-    // TODO: split recent commands
 
     // NOTE: Propsals should be treated as timeout by clients in the following cases:
     // - Taking too long time (simple timeout)
@@ -335,7 +346,6 @@ impl RaftNode {
                     self.push_action(Action::AppendStorageEntry(value));
                 }
                 raftbare::Action::SendMessage(node_id, message) => {
-                    // TODO: check recent commands and take snapshot if message contains dropped entries
                     let message = JsonLineValue::new_internal(nojson::json(|f| {
                         crate::conv::fmt_message(f, &message, &self.recent_commands)
                     }));
