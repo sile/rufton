@@ -351,8 +351,8 @@ impl RaftNode {
                     }));
                     self.push_action(Action::SendMessage(node_id, message));
                 }
-                raftbare::Action::InstallSnapshot(_) => {
-                    todo!("InstallSnapshot action")
+                raftbare::Action::InstallSnapshot(dst) => {
+                    self.push_action(Action::SendSnapshot(dst));
                 }
             }
         }
@@ -634,6 +634,7 @@ pub enum Action {
     AppendStorageEntry(JsonLineValue),
     BroadcastMessage(JsonLineValue),
     SendMessage(raftbare::NodeId, JsonLineValue),
+    SendSnapshot(raftbare::NodeId),
     Commit {
         proposal_id: Option<ProposalId>,
         index: raftbare::LogIndex,
