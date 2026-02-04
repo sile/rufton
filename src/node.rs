@@ -29,13 +29,17 @@ impl RaftNode {
             action_queue: std::collections::VecDeque::new(),
             recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
-            instance_id,
+            instance_id, // TODO: set 0 on start
             local_command_seqno: 0,
             applied_index: raftbare::LogIndex::ZERO,
             dirty_members: false,
             pending_queries: std::collections::BTreeSet::new(),
             pending_proposals: Vec::new(),
         }
+    }
+
+    pub fn restart(id: raftbare::NodeId, snapshot: JsonLineValue) -> Option<Self> {
+        todo!()
     }
 
     pub fn id(&self) -> raftbare::NodeId {
