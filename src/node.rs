@@ -99,10 +99,9 @@ impl RaftNode {
         &mut self,
         entries: &'a [JsonLineValue],
     ) -> (bool, Option<nojson::RawJsonValue<'a, 'a>>) {
-        // TODO: Introduce Error type
-        // TODO: Return user machine JSON
         let mut last_generation: u64 = 0;
         for entry in entries {
+            // TODO: add snapshot and other entries handling
             let ty = entry
                 .get()
                 .to_member("type")
@@ -123,6 +122,8 @@ impl RaftNode {
         let value = JsonLineValue::new_internal(entry);
         self.push_action(Action::AppendStorageEntry(value));
 
+        // TODO: The first value indicates this load successful or not (not initialized flag)
+        // TODO: Return user machine JSON
         (self.initialized, None)
     }
 
