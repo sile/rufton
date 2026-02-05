@@ -867,7 +867,7 @@ impl JsonLineValue {
 
 impl nojson::DisplayJson for JsonLineValue {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        writeln!(f.inner_mut(), "{}", self.0.text())
+        write!(f.inner_mut(), "{}", self.0.text())
     }
 }
 
