@@ -20,19 +20,44 @@ pub fn main() -> noargs::Result<()> {
         return Ok(());
     }
 
-    let addr = format!("127.0.0.1:{port}");
-    run_node(&addr)?;
+    run_node(noraft::NodeId::new(port as u64), contact_node)?;
     Ok(())
 }
 
-fn run_node(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let socket_addr: std::net::SocketAddr = listen_addr.parse()?;
-    let mut poll = mio::Poll::new()?;
-    let min_token = mio::Token(0);
-    let max_token = mio::Token(1024);
+fn addr(id: noraft::NodeId) -> std::net::SocketAddr {
+    ([127, 0, 0, 1], id.get() as u16).into()
+}
 
-    let mut server = rufton::JsonRpcServer::start(&mut poll, min_token, max_token, socket_addr)?;
-    eprintln!("Echo server listening on {}", listen_addr);
+fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> noargs::Result<()> {
+    let mut poll = mio::Poll::new()?;
+    let mut server =
+        rufton::JsonRpcServer::start(&mut poll, mio::Token(0), mio::Token(100), addr(node_id))?;
+    let mut client = rufton::JsonRpcClient::new(mio::Token(200), mio::Token(300))?;
+    eprintln!("Started node {}", node_id.get());
+
+    let mut node = rufton::RaftNode::start(node_id);
+    let mut machine = std::collections::HashMap::<String, nojson::RawJsonOwned>::new();
+
+    let mut storage = rufton::FileStorage::open(format!("/tmp/kvs-{}.jsonl", node_id.get()))?;
+    let entries = storage.load_entries()?;
+    if entries.is_empty() {
+        if let Some(contact) = contact_node {
+            let params = nojson::object(|f| {
+                f.member("type", "AddNode")?;
+                f.member("proposal_id", [0, 0, 0])?;
+                f.member("id", node_id.get())
+            });
+            client.send_request(&mut poll, addr(contact), None, "Propose", params)?;
+        } else {
+            node.init_cluster();
+        }
+    } else {
+        let (ok, snapshot) = node.load(&entries);
+        assert!(ok);
+        if let Some(snapshot) = snapshot {
+            machine = snapshot.try_into()?;
+        }
+    }
 
     let mut events = mio::Events::with_capacity(128);
 
