@@ -1276,6 +1276,15 @@ mod tests {
                             let j = j.get() as usize;
                             assert!(nodes[j].handle_message(&m));
                         }
+                        Action::SendSnapshot(j) => {
+                            let j = j.get() as usize;
+                            let applied_index = nodes[i].applied_index;
+                            let snapshot = nodes[i]
+                                .create_snapshot(applied_index, &"user")
+                                .expect("snapshot should be created");
+                            let (ok, _) = nodes[j].load(std::slice::from_ref(&snapshot));
+                            assert!(ok);
+                        }
                         _ => {}
                     }
                 }
