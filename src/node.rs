@@ -837,6 +837,10 @@ impl JsonLineValue {
         Self(std::sync::Arc::new(json))
     }
 
+    pub fn new<T: nojson::DisplayJson>(v: T) -> Self {
+        Self::new_internal(v)
+    }
+
     pub fn get(&self) -> nojson::RawJsonValue<'_, '_> {
         self.0.value()
     }
