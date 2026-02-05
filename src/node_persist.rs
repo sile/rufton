@@ -209,7 +209,7 @@ impl RaftNode {
                     "LogEntries" => {
                         let prev_term = noraft::Term::new(entry.get_member("term")?);
                         let prev_index = noraft::LogIndex::new(entry.get_member("index")?);
-                        if !snapshot_loaded && log_entries.len() == 0 {
+                        if !snapshot_loaded && log_entries.is_empty() {
                             log_entries = noraft::LogEntries::new(noraft::LogPosition {
                                 term: prev_term,
                                 index: prev_index,
