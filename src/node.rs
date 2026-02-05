@@ -14,7 +14,7 @@ pub struct RaftNode {
     pub action_queue: std::collections::VecDeque<Action>,
     pub recent_commands: RecentCommands,
     pub initialized: bool,
-    pub instance_id: u64,
+    pub generation: u64,
     pub local_command_seqno: u64,
     pub applied_index: raftbare::LogIndex,
     pub dirty_members: bool,
@@ -24,13 +24,18 @@ pub struct RaftNode {
 
 impl RaftNode {
     pub fn start(id: raftbare::NodeId) -> Self {
+        let mut action_queue = std::collections::VecDeque::new();
+        let generation = 0;
+        let entry = StorageEntry::NodeGeneration(generation);
+        let value = JsonLineValue::new_internal(entry);
+        action_queue.push_back(Action::AppendStorageEntry(value));
         Self {
             inner: raftbare::Node::start(id),
             machine: RaftNodeStateMachine::default(),
-            action_queue: std::collections::VecDeque::new(),
+            action_queue,
             recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
-            instance_id: 0,
+            generation,
             local_command_seqno: 0,
             applied_index: raftbare::LogIndex::ZERO,
             dirty_members: false,
@@ -96,15 +101,36 @@ impl RaftNode {
         entries: &'a [JsonLineValue],
     ) -> (bool, Option<nojson::RawJsonValue<'a, 'a>>) {
         // TODO: Introduce Error type
-        // TODO: Increment and save node generation
         // TODO: Return user machine JSON
-        todo!()
+        let mut last_generation: u64 = 0;
+        for entry in entries {
+            let ty = entry
+                .get()
+                .to_member("type")
+                .ok()
+                .and_then(|t| t.required().ok())
+                .and_then(|t| t.to_unquoted_string_str().ok());
+            if let Some(ty) = ty {
+                if ty.as_ref() == "NodeGeneration" {
+                    if let Ok(generation_value) = entry.get_member("generation") {
+                        last_generation = generation_value;
+                    }
+                }
+            }
+        }
+
+        self.generation = last_generation.saturating_add(1);
+        let entry = StorageEntry::NodeGeneration(self.generation);
+        let value = JsonLineValue::new_internal(entry);
+        self.push_action(Action::AppendStorageEntry(value));
+
+        (self.initialized, None)
     }
 
     // TODO: remove this fun
     pub fn restart(
         id: raftbare::NodeId,
-        instance_id: u64,
+        generation: u64,
         snapshot: Option<JsonLineValue>,
         storage_entries: &[JsonLineValue],
     ) -> Result<Self, nojson::JsonParseError> {
@@ -228,7 +254,7 @@ impl RaftNode {
             action_queue: std::collections::VecDeque::new(),
             recent_commands,
             initialized: true,
-            instance_id,
+            generation,
             local_command_seqno: 0,
             applied_index: position.index,
             dirty_members: false,
@@ -397,7 +423,7 @@ impl RaftNode {
     fn next_proposal_id(&mut self) -> ProposalId {
         let proposal_id = ProposalId {
             node_id: self.inner.id(),
-            instance_id: self.instance_id,
+            generation: self.generation,
             local_seqno: self.local_command_seqno,
         };
         self.local_command_seqno += 1;
@@ -681,13 +707,13 @@ impl RaftNode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ProposalId {
     node_id: raftbare::NodeId,
-    instance_id: u64,
+    generation: u64,
     local_seqno: u64,
 }
 
 impl nojson::DisplayJson for ProposalId {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        [self.node_id.get(), self.instance_id, self.local_seqno].fmt(f)
+        [self.node_id.get(), self.generation, self.local_seqno].fmt(f)
     }
 }
 
@@ -695,10 +721,10 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for ProposalId {
     type Error = nojson::JsonParseError;
 
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
-        let [node_id, instance_id, local_seqno] = value.try_into()?;
+        let [node_id, generation, local_seqno] = value.try_into()?;
         Ok(ProposalId {
             node_id: raftbare::NodeId::new(node_id),
-            instance_id,
+            generation,
             local_seqno,
         })
     }
@@ -905,7 +931,7 @@ pub enum Action {
 pub enum StorageEntry {
     Term(raftbare::Term),
     VotedFor(Option<raftbare::NodeId>),
-    // NodeInstanceId or NodeGeneration
+    NodeGeneration(u64),
 }
 
 impl nojson::DisplayJson for StorageEntry {
@@ -918,6 +944,10 @@ impl nojson::DisplayJson for StorageEntry {
             StorageEntry::VotedFor(node_id) => f.object(|f| {
                 f.member("type", "VotedFor")?;
                 f.member("node_id", node_id.map(|id| id.get()))
+            }),
+            StorageEntry::NodeGeneration(generation) => f.object(|f| {
+                f.member("type", "NodeGeneration")?;
+                f.member("generation", generation)
             }),
         }
     }
@@ -940,6 +970,10 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
                 let node_id: Option<u64> = value.to_member("node_id")?.try_into()?;
                 Ok(StorageEntry::VotedFor(node_id.map(raftbare::NodeId::new)))
             }
+            "NodeGeneration" => {
+                let generation = value.to_member("generation")?.required()?.try_into()?;
+                Ok(StorageEntry::NodeGeneration(generation))
+            }
             ty => Err(value.invalid(format!("unknown storage entry type: {ty}"))),
         }
     }
@@ -959,6 +993,12 @@ mod tests {
         let mut node = RaftNode::start(node_id(0));
         assert!(node.init_cluster());
         assert!(!node.init_cluster());
+        assert_eq!(
+            node.next_action(),
+            Some(append_storage_entry_action(
+                r#"{"type":"NodeGeneration","generation":0}"#
+            ))
+        );
         assert_eq!(node.next_action(), Some(set_leader_timeout_action()));
         assert_eq!(
             node.next_action(),
@@ -979,6 +1019,42 @@ mod tests {
 
         assert_eq!(node.machine.nodes.len(), 1);
         assert!(node.machine.nodes.contains(&node_id(0)));
+    }
+
+    #[test]
+    fn load_increments_generation() {
+        let mut node = RaftNode::start(node_id(0));
+        node.action_queue.clear();
+
+        let entry = JsonLineValue::new_internal(StorageEntry::NodeGeneration(0));
+        node.load(std::slice::from_ref(&entry));
+
+        assert_eq!(node.generation, 1);
+        assert_eq!(
+            node.action_queue.pop_front(),
+            Some(append_storage_entry_action(
+                r#"{"type":"NodeGeneration","generation":1}"#
+            ))
+        );
+    }
+
+    #[test]
+    fn load_uses_last_generation() {
+        let mut node = RaftNode::start(node_id(0));
+        node.action_queue.clear();
+
+        let entry1 = JsonLineValue::new_internal(StorageEntry::NodeGeneration(2));
+        let entry2 = JsonLineValue::new_internal(StorageEntry::NodeGeneration(5));
+        let entries = [entry1, entry2];
+        node.load(&entries);
+
+        assert_eq!(node.generation, 6);
+        assert_eq!(
+            node.action_queue.pop_front(),
+            Some(append_storage_entry_action(
+                r#"{"type":"NodeGeneration","generation":6}"#
+            ))
+        );
     }
 
     #[test]
