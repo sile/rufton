@@ -123,9 +123,8 @@ impl RaftNode {
 
             let log_entry = match entry_type.as_str() {
                 "Term" => {
-                    let term = noraft::Term::new(
-                        entry_value.to_member("term")?.required()?.try_into()?,
-                    );
+                    let term =
+                        noraft::Term::new(entry_value.to_member("term")?.required()?.try_into()?);
                     noraft::LogEntry::Term(term)
                 }
                 "ClusterConfig" => {
@@ -165,9 +164,7 @@ impl RaftNode {
                     noraft::LogEntry::Command
                 }
                 _ => {
-                    return Err(
-                        entry_value.invalid(format!("unknown entry type: {entry_type}"))
-                    );
+                    return Err(entry_value.invalid(format!("unknown entry type: {entry_type}")));
                 }
             };
 
@@ -222,8 +219,11 @@ impl RaftNode {
                             entry.get().to_member("user_machine")?.required()?;
                         user_machine = Some(user_machine_value);
 
-                        let entries_array =
-                            entry.get().to_member("log_entries")?.required()?.to_array()?;
+                        let entries_array = entry
+                            .get()
+                            .to_member("log_entries")?
+                            .required()?
+                            .to_array()?;
                         for entry_value in entries_array {
                             parse_log_entry(
                                 entry_value,

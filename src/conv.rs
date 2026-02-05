@@ -277,10 +277,7 @@ pub fn json_to_message(
             })
         }
         "AppendEntriesReply" => {
-            let generation: u64 = value
-                .to_member("generation")?
-                .required()?
-                .try_into()?;
+            let generation: u64 = value.to_member("generation")?.required()?.try_into()?;
             let last_term =
                 noraft::Term::new(value.to_member("last_term")?.required()?.try_into()?);
             let last_index =
