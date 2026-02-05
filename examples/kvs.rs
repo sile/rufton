@@ -47,7 +47,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 f.member("proposal_id", [0, 0, 0])?;
                 f.member("id", node_id.get())
             });
-            client.send_request(&mut poll, addr(contact), None, "Propose", params)?;
+            client.send_request(&mut poll, addr(contact), None, "Internal", params)?;
         } else {
             node.init_cluster();
         }
@@ -102,13 +102,16 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                     server.reply_err(&mut poll, client_id, None, e.code(), e.message())?;
                 }
                 Ok(req) => {
-                    eprintln!("{}", req.json());
-                    todo!()
-                    /*let Some(req_id) = req.id().cloned() else {
-                        continue;
+                    if let Some(req_id) = req.id().cloned() {
+                        // Assumes external API
+                        todo!()
+                    } else {
+                        // Assumes internal node communication
+                        assert_eq!(req.method(), "Internal");
+                        if let Some(params) = req.params() {
+                            node.handle_message(&rufton::JsonLineValue::new(params));
+                        }
                     };
-                    let json = req.into_json().into_owned();
-                    server.reply_ok(&mut poll, client_id, &req_id, json)?;*/
                 }
             }
         }
