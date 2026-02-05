@@ -1,4 +1,4 @@
-pub type RecentCommands = std::collections::BTreeMap<raftbare::LogIndex, JsonLineValue>;
+pub type RecentCommands = std::collections::BTreeMap<noraft::LogIndex, JsonLineValue>;
 
 #[derive(Debug, Clone)]
 enum Pending {
@@ -8,35 +8,33 @@ enum Pending {
 
 #[derive(Debug, Clone)]
 pub struct RaftNode {
-    pub inner: raftbare::Node,
+    pub inner: noraft::Node,
     pub machine: RaftNodeStateMachine,
     pub action_queue: std::collections::VecDeque<Action>,
     pub recent_commands: RecentCommands,
     pub initialized: bool,
-    pub generation: u64,
     pub local_command_seqno: u64,
-    pub applied_index: raftbare::LogIndex,
+    pub applied_index: noraft::LogIndex,
     pub dirty_members: bool,
-    pub pending_queries: std::collections::BTreeSet<(raftbare::LogPosition, ProposalId)>,
+    pub pending_queries: std::collections::BTreeSet<(noraft::LogPosition, ProposalId)>,
     pending_proposals: Vec<Pending>, // TODO: remove?
 }
 
 impl RaftNode {
-    pub fn start(id: raftbare::NodeId) -> Self {
+    pub fn start(id: noraft::NodeId) -> Self {
         let mut action_queue = std::collections::VecDeque::new();
-        let generation = 0;
-        let entry = StorageEntry::NodeGeneration(generation);
+        let inner = noraft::Node::start(id);
+        let entry = StorageEntry::NodeGeneration(inner.generation().get());
         let value = JsonLineValue::new_internal(entry);
         action_queue.push_back(Action::AppendStorageEntry(value));
         Self {
-            inner: raftbare::Node::start(id),
+            inner,
             machine: RaftNodeStateMachine::default(),
             action_queue,
             recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
-            generation,
             local_command_seqno: 0,
-            applied_index: raftbare::LogIndex::ZERO,
+            applied_index: noraft::LogIndex::ZERO,
             dirty_members: false,
             pending_queries: std::collections::BTreeSet::new(),
             pending_proposals: Vec::new(),
@@ -47,8 +45,8 @@ impl RaftNode {
         snapshot: &JsonLineValue,
     ) -> Result<
         (
-            raftbare::LogPosition,
-            raftbare::ClusterConfig,
+            noraft::LogPosition,
+            noraft::ClusterConfig,
             RaftNodeStateMachine,
         ),
         nojson::JsonParseError,
@@ -58,28 +56,28 @@ impl RaftNode {
         // Extract position
         let position_json = snapshot_json.to_member("position")?.required()?;
         let position_term =
-            raftbare::Term::new(position_json.to_member("term")?.required()?.try_into()?);
+            noraft::Term::new(position_json.to_member("term")?.required()?.try_into()?);
         let position_index =
-            raftbare::LogIndex::new(position_json.to_member("index")?.required()?.try_into()?);
-        let position = raftbare::LogPosition {
+            noraft::LogIndex::new(position_json.to_member("index")?.required()?.try_into()?);
+        let position = noraft::LogPosition {
             term: position_term,
             index: position_index,
         };
 
         // Extract config
         let config_json = snapshot_json.to_member("config")?.required()?;
-        let mut config = raftbare::ClusterConfig::new();
+        let mut config = noraft::ClusterConfig::new();
 
         let voters_json = config_json.to_member("voters")?.required()?;
         for voter_id in voters_json.to_array()? {
             let id: u64 = voter_id.try_into()?;
-            config.voters.insert(raftbare::NodeId::new(id));
+            config.voters.insert(noraft::NodeId::new(id));
         }
 
         let new_voters_json = config_json.to_member("new_voters")?.required()?;
         for voter_id in new_voters_json.to_array()? {
             let id: u64 = voter_id.try_into()?;
-            config.new_voters.insert(raftbare::NodeId::new(id));
+            config.new_voters.insert(noraft::NodeId::new(id));
         }
 
         // Extract machine state
@@ -89,7 +87,7 @@ impl RaftNode {
 
         for node_id in nodes_json.to_array()? {
             let id: u64 = node_id.try_into()?;
-            machine.nodes.insert(raftbare::NodeId::new(id));
+            machine.nodes.insert(noraft::NodeId::new(id));
         }
 
         Ok((position, config, machine))
@@ -100,22 +98,22 @@ impl RaftNode {
         entries: &'a [JsonLineValue],
     ) -> (bool, Option<nojson::RawJsonValue<'a, 'a>>) {
         struct LoadState<'a> {
-            current_term: raftbare::Term,
-            voted_for: Option<raftbare::NodeId>,
-            config: raftbare::ClusterConfig,
+            current_term: noraft::Term,
+            voted_for: Option<noraft::NodeId>,
+            config: noraft::ClusterConfig,
             machine: RaftNodeStateMachine,
-            log_entries: raftbare::LogEntries,
+            log_entries: noraft::LogEntries,
             recent_commands: RecentCommands,
-            applied_index: raftbare::LogIndex,
+            applied_index: noraft::LogIndex,
             last_generation: u64,
             user_machine: Option<nojson::RawJsonValue<'a, 'a>>,
         }
 
         fn parse_log_entry(
             entry_value: nojson::RawJsonValue<'_, '_>,
-            log_entries: &mut raftbare::LogEntries,
+            log_entries: &mut noraft::LogEntries,
             recent_commands: &mut RecentCommands,
-            config: &mut raftbare::ClusterConfig,
+            config: &mut noraft::ClusterConfig,
         ) -> Result<(), nojson::JsonParseError> {
             let entry_type: String = entry_value
                 .to_member("type")?
@@ -125,20 +123,20 @@ impl RaftNode {
 
             let log_entry = match entry_type.as_str() {
                 "Term" => {
-                    let term = raftbare::Term::new(
+                    let term = noraft::Term::new(
                         entry_value.to_member("term")?.required()?.try_into()?,
                     );
-                    raftbare::LogEntry::Term(term)
+                    noraft::LogEntry::Term(term)
                 }
                 "ClusterConfig" => {
-                    let mut cfg = raftbare::ClusterConfig::new();
+                    let mut cfg = noraft::ClusterConfig::new();
                     cfg.voters = entry_value
                         .to_member("voters")?
                         .required()?
                         .to_array()?
                         .map(|v| {
                             let node_id: u64 = v.try_into()?;
-                            Ok(raftbare::NodeId::new(node_id))
+                            Ok(noraft::NodeId::new(node_id))
                         })
                         .collect::<Result<_, nojson::JsonParseError>>()?;
 
@@ -148,23 +146,23 @@ impl RaftNode {
                         .to_array()?
                         .map(|v| {
                             let node_id: u64 = v.try_into()?;
-                            Ok(raftbare::NodeId::new(node_id))
+                            Ok(noraft::NodeId::new(node_id))
                         })
                         .collect::<Result<_, nojson::JsonParseError>>()?;
 
                     *config = cfg.clone();
-                    raftbare::LogEntry::ClusterConfig(cfg)
+                    noraft::LogEntry::ClusterConfig(cfg)
                 }
                 "Command" => {
                     let command_json = entry_value.to_member("value")?.required()?;
                     let command = JsonLineValue::new_internal(command_json);
 
-                    let current_index = raftbare::LogIndex::new(
+                    let current_index = noraft::LogIndex::new(
                         log_entries.prev_position().index.get() + log_entries.len() as u64 + 1,
                     );
                     recent_commands.insert(current_index, command);
 
-                    raftbare::LogEntry::Command
+                    noraft::LogEntry::Command
                 }
                 _ => {
                     return Err(
@@ -179,13 +177,13 @@ impl RaftNode {
 
         let result: Result<LoadState<'a>, nojson::JsonParseError> = (|| {
             let mut last_generation: u64 = 0;
-            let mut current_term = raftbare::Term::new(0);
+            let mut current_term = noraft::Term::new(0);
             let mut voted_for = None;
-            let mut config = raftbare::ClusterConfig::new();
+            let mut config = noraft::ClusterConfig::new();
             let mut machine = RaftNodeStateMachine::default();
-            let mut log_entries = raftbare::LogEntries::new(raftbare::LogPosition::ZERO);
+            let mut log_entries = noraft::LogEntries::new(noraft::LogPosition::ZERO);
             let mut recent_commands = std::collections::BTreeMap::new();
-            let mut applied_index = raftbare::LogIndex::ZERO;
+            let mut applied_index = noraft::LogIndex::ZERO;
             let mut user_machine = None;
             let mut snapshot_loaded = false;
 
@@ -206,19 +204,19 @@ impl RaftNode {
                             Self::parse_snapshot_json(entry)?;
                         config = snap_config;
                         machine = snap_machine;
-                        log_entries = raftbare::LogEntries::new(position);
+                        log_entries = noraft::LogEntries::new(position);
                         recent_commands = std::collections::BTreeMap::new();
                         applied_index = position.index;
                         snapshot_loaded = true;
 
                         let node_state = entry.get().to_member("node_state")?.required()?;
-                        let term = raftbare::Term::new(
+                        let term = noraft::Term::new(
                             node_state.to_member("term")?.required()?.try_into()?,
                         );
                         let voted_for_value: Option<u64> =
                             node_state.to_member("voted_for")?.try_into()?;
                         current_term = term;
-                        voted_for = voted_for_value.map(raftbare::NodeId::new);
+                        voted_for = voted_for_value.map(noraft::NodeId::new);
 
                         let user_machine_value =
                             entry.get().to_member("user_machine")?.required()?;
@@ -239,17 +237,17 @@ impl RaftNode {
                         last_generation = entry.get_member("generation")?;
                     }
                     "Term" => {
-                        current_term = raftbare::Term::new(entry.get_member("term")?);
+                        current_term = noraft::Term::new(entry.get_member("term")?);
                     }
                     "VotedFor" => {
                         let node_id: Option<u64> = entry.get().to_member("node_id")?.try_into()?;
-                        voted_for = node_id.map(raftbare::NodeId::new);
+                        voted_for = node_id.map(noraft::NodeId::new);
                     }
                     "LogEntries" => {
-                        let prev_term = raftbare::Term::new(entry.get_member("term")?);
-                        let prev_index = raftbare::LogIndex::new(entry.get_member("index")?);
+                        let prev_term = noraft::Term::new(entry.get_member("term")?);
+                        let prev_index = noraft::LogIndex::new(entry.get_member("index")?);
                         if !snapshot_loaded && log_entries.len() == 0 {
-                            log_entries = raftbare::LogEntries::new(raftbare::LogPosition {
+                            log_entries = noraft::LogEntries::new(noraft::LogPosition {
                                 term: prev_term,
                                 index: prev_index,
                             });
@@ -288,8 +286,16 @@ impl RaftNode {
             Err(_) => return (false, None),
         };
 
-        let log = raftbare::Log::new(state.config.clone(), state.log_entries);
-        self.inner = raftbare::Node::restart(self.inner.id(), state.current_term, state.voted_for, log);
+        let log = noraft::Log::new(state.config.clone(), state.log_entries);
+        let new_generation = state.last_generation.saturating_add(1);
+        let generation = noraft::NodeGeneration::new(new_generation);
+        self.inner = noraft::Node::restart(
+            self.inner.id(),
+            generation,
+            state.current_term,
+            state.voted_for,
+            log,
+        );
         self.machine = state.machine;
         self.recent_commands = state.recent_commands;
         self.applied_index = state.applied_index;
@@ -299,15 +305,14 @@ impl RaftNode {
         self.pending_proposals = Vec::new();
         self.local_command_seqno = 0;
 
-        self.generation = state.last_generation.saturating_add(1);
-        let entry = StorageEntry::NodeGeneration(self.generation);
+        let entry = StorageEntry::NodeGeneration(new_generation);
         let value = JsonLineValue::new_internal(entry);
         self.push_action(Action::AppendStorageEntry(value));
 
         (true, state.user_machine)
     }
 
-    pub fn id(&self) -> raftbare::NodeId {
+    pub fn id(&self) -> noraft::NodeId {
         self.inner.id()
     }
 
@@ -329,7 +334,7 @@ impl RaftNode {
         &self.recent_commands
     }
 
-    pub fn strip_memory_log(&mut self, index: raftbare::LogIndex) -> bool {
+    pub fn strip_memory_log(&mut self, index: noraft::LogIndex) -> bool {
         if index > self.applied_index {
             return false;
         }
@@ -346,7 +351,7 @@ impl RaftNode {
             return false;
         }
 
-        let i = raftbare::LogIndex::new(index.get() + 1);
+        let i = noraft::LogIndex::new(index.get() + 1);
         self.recent_commands = self.recent_commands.split_off(&i);
         true
     }
@@ -396,8 +401,8 @@ impl RaftNode {
         proposal_id
     }
 
-    fn get_next_broadcast_position(&self) -> Option<raftbare::LogPosition> {
-        if let Some(raftbare::Message::AppendEntriesCall { entries, .. }) =
+    fn get_next_broadcast_position(&self) -> Option<noraft::LogPosition> {
+        if let Some(noraft::Message::AppendEntriesCall { entries, .. }) =
             &self.inner.actions().broadcast_message
             && let Some((pos, _)) = entries.iter_with_positions().next()
         {
@@ -438,7 +443,7 @@ impl RaftNode {
     }
 
     // TODO: refactor
-    fn propose_query_for_redirect(&mut self, from: raftbare::NodeId, proposal_id: ProposalId) {
+    fn propose_query_for_redirect(&mut self, from: noraft::NodeId, proposal_id: ProposalId) {
         if self.inner.role().is_leader() {
             let command = Command::Query;
             let position = if let Some(position) = self.get_next_broadcast_position() {
@@ -467,21 +472,21 @@ impl RaftNode {
     fn next_proposal_id(&mut self) -> ProposalId {
         let proposal_id = ProposalId {
             node_id: self.inner.id(),
-            generation: self.generation,
+            generation: self.inner.generation().get(),
             local_seqno: self.local_command_seqno,
         };
         self.local_command_seqno += 1;
         proposal_id
     }
 
-    pub fn propose_add_node(&mut self, id: raftbare::NodeId) -> ProposalId {
+    pub fn propose_add_node(&mut self, id: noraft::NodeId) -> ProposalId {
         let proposal_id = self.next_proposal_id();
         let command = Command::AddNode { proposal_id, id };
         self.propose(command);
         proposal_id
     }
 
-    pub fn remove_node(&mut self, id: raftbare::NodeId) -> ProposalId {
+    pub fn remove_node(&mut self, id: noraft::NodeId) -> ProposalId {
         let proposal_id = self.next_proposal_id();
         let command = Command::RemoveNode { proposal_id, id };
         self.propose(command);
@@ -527,7 +532,7 @@ impl RaftNode {
         if !nodes_to_add.is_empty() || !nodes_to_remove.is_empty() {
             let new_config = current_config.to_joint_consensus(&nodes_to_add, &nodes_to_remove);
             let pos = self.inner.propose_config(new_config);
-            assert_ne!(pos, raftbare::LogPosition::INVALID);
+            assert_ne!(pos, noraft::LogPosition::INVALID);
         }
 
         self.dirty_members = false;
@@ -566,7 +571,7 @@ impl RaftNode {
         if !self.initialized {
             self.initialized = true;
         }
-        self.inner.handle_message(message.clone());
+        self.inner.handle_message(&message);
 
         let command_values = crate::conv::get_command_values(message_value.get(), &message);
         for (pos, command) in command_values.into_iter().flatten() {
@@ -595,7 +600,7 @@ impl RaftNode {
         let mut after_commit_actions = Vec::new();
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
-                raftbare::Action::SetElectionTimeout => {
+                noraft::Action::SetElectionTimeout => {
                     let role = self.inner.role();
                     for p in std::mem::take(&mut self.pending_proposals)
                         .into_iter()
@@ -609,44 +614,44 @@ impl RaftNode {
 
                     self.push_action(Action::SetTimeout(role));
                 }
-                raftbare::Action::SaveCurrentTerm => {
+                noraft::Action::SaveCurrentTerm => {
                     let term = self.inner.current_term();
                     let entry = StorageEntry::Term(term);
                     let value = JsonLineValue::new_internal(entry);
                     self.push_action(Action::AppendStorageEntry(value));
                 }
-                raftbare::Action::SaveVotedFor => {
+                noraft::Action::SaveVotedFor => {
                     let voted_for = self.inner.voted_for();
                     let entry = StorageEntry::VotedFor(voted_for);
                     let value = JsonLineValue::new_internal(entry);
                     self.push_action(Action::AppendStorageEntry(value));
                 }
-                raftbare::Action::BroadcastMessage(message) => {
+                noraft::Action::BroadcastMessage(message) => {
                     let value = JsonLineValue::new_internal(nojson::json(|f| {
                         crate::conv::fmt_message(f, &message, &self.recent_commands)
                     }));
                     self.push_action(Action::BroadcastMessage(value));
                 }
-                raftbare::Action::AppendLogEntries(entries) => {
+                noraft::Action::AppendLogEntries(entries) => {
                     let value = JsonLineValue::new_internal(nojson::json(|f| {
                         crate::conv::fmt_log_entries(f, &entries, &self.recent_commands)
                     }));
                     self.push_action(Action::AppendStorageEntry(value));
                 }
-                raftbare::Action::SendMessage(node_id, message) => {
+                noraft::Action::SendMessage(node_id, message) => {
                     let message = JsonLineValue::new_internal(nojson::json(|f| {
                         crate::conv::fmt_message(f, &message, &self.recent_commands)
                     }));
                     self.push_action(Action::SendMessage(node_id, message));
                 }
-                raftbare::Action::InstallSnapshot(dst) => {
+                noraft::Action::InstallSnapshot(dst) => {
                     after_commit_actions.push(Action::SendSnapshot(dst));
                 }
             }
         }
 
         for i in self.applied_index.get()..self.inner.commit_index().get() {
-            let index = raftbare::LogIndex::new(i + 1);
+            let index = noraft::LogIndex::new(i + 1);
 
             let Some(command) = self.recent_commands.get(&index).cloned() else {
                 continue;
@@ -679,11 +684,11 @@ impl RaftNode {
         while let Some(&(position, proposal_id)) = self.pending_queries.first() {
             let status = self.inner.get_commit_status(position);
             match status {
-                raftbare::CommitStatus::InProgress => break,
-                raftbare::CommitStatus::Rejected | raftbare::CommitStatus::Unknown => {
+                noraft::CommitStatus::InProgress => break,
+                noraft::CommitStatus::Rejected | noraft::CommitStatus::Unknown => {
                     self.pending_queries.pop_first();
                 }
-                raftbare::CommitStatus::Committed => {
+                noraft::CommitStatus::Committed => {
                     self.pending_queries.pop_first();
                     self.push_action(Action::Query { proposal_id });
                 }
@@ -700,7 +705,7 @@ impl RaftNode {
 
     pub fn create_snapshot<T: nojson::DisplayJson>(
         &self,
-        applied_index: raftbare::LogIndex,
+        applied_index: noraft::LogIndex,
         machine: &T,
     ) -> Option<JsonLineValue> {
         let i = self.applied_index;
@@ -774,7 +779,7 @@ impl RaftNode {
     }
 
     fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
-        let id = raftbare::NodeId::new(command.get_member("id")?);
+        let id = noraft::NodeId::new(command.get_member("id")?);
 
         if self.machine.nodes.contains(&id) {
             return Ok(());
@@ -790,7 +795,7 @@ impl RaftNode {
         &mut self,
         command: &JsonLineValue,
     ) -> Result<(), nojson::JsonParseError> {
-        let id = raftbare::NodeId::new(command.get_member("id")?);
+        let id = noraft::NodeId::new(command.get_member("id")?);
 
         if !self.machine.nodes.remove(&id) {
             return Ok(());
@@ -803,7 +808,7 @@ impl RaftNode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ProposalId {
-    node_id: raftbare::NodeId,
+    node_id: noraft::NodeId,
     generation: u64,
     local_seqno: u64,
 }
@@ -820,7 +825,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for ProposalId {
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
         let [node_id, generation, local_seqno] = value.try_into()?;
         Ok(ProposalId {
-            node_id: raftbare::NodeId::new(node_id),
+            node_id: noraft::NodeId::new(node_id),
             generation,
             local_seqno,
         })
@@ -882,12 +887,12 @@ impl std::fmt::Display for JsonLineValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryMessage {
     Redirect {
-        from: raftbare::NodeId,
+        from: noraft::NodeId,
         proposal_id: ProposalId,
     },
     Proposed {
         proposal_id: ProposalId,
-        position: raftbare::LogPosition,
+        position: noraft::LogPosition,
     },
 }
 
@@ -925,18 +930,18 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
                 let from: u64 = value.to_member("from")?.required()?.try_into()?;
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 Ok(QueryMessage::Redirect {
-                    from: raftbare::NodeId::new(from),
+                    from: noraft::NodeId::new(from),
                     proposal_id,
                 })
             }
             "Proposed" => {
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
-                let term = raftbare::Term::new(value.to_member("term")?.required()?.try_into()?);
+                let term = noraft::Term::new(value.to_member("term")?.required()?.try_into()?);
                 let index =
-                    raftbare::LogIndex::new(value.to_member("index")?.required()?.try_into()?);
+                    noraft::LogIndex::new(value.to_member("index")?.required()?.try_into()?);
                 Ok(QueryMessage::Proposed {
                     proposal_id,
-                    position: raftbare::LogPosition { term, index },
+                    position: noraft::LogPosition { term, index },
                 })
             }
             ty => Err(value.invalid(format!("unknown query message type: {ty}"))),
@@ -948,11 +953,11 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
 pub enum Command {
     AddNode {
         proposal_id: ProposalId,
-        id: raftbare::NodeId,
+        id: noraft::NodeId,
     },
     RemoveNode {
         proposal_id: ProposalId,
-        id: raftbare::NodeId,
+        id: noraft::NodeId,
     },
     Apply {
         proposal_id: ProposalId,
@@ -1001,7 +1006,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
                 let id = value.to_member("id")?.required()?.try_into()?;
                 Ok(Command::AddNode {
                     proposal_id,
-                    id: raftbare::NodeId::new(id),
+                    id: noraft::NodeId::new(id),
                 })
             }
             "RemoveNode" => {
@@ -1009,7 +1014,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
                 let id = value.to_member("id")?.required()?.try_into()?;
                 Ok(Command::RemoveNode {
                     proposal_id,
-                    id: raftbare::NodeId::new(id),
+                    id: noraft::NodeId::new(id),
                 })
             }
             "Apply" => {
@@ -1029,15 +1034,15 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    SetTimeout(raftbare::Role),
+    SetTimeout(noraft::Role),
     AppendStorageEntry(JsonLineValue),
     BroadcastMessage(JsonLineValue),
-    SendMessage(raftbare::NodeId, JsonLineValue),
-    SendSnapshot(raftbare::NodeId),
+    SendMessage(noraft::NodeId, JsonLineValue),
+    SendSnapshot(noraft::NodeId),
     // TODO: NotifyEvent
     Commit {
         proposal_id: Option<ProposalId>,
-        index: raftbare::LogIndex,
+        index: noraft::LogIndex,
         command: Option<JsonLineValue>,
     },
     Query {
@@ -1047,8 +1052,8 @@ pub enum Action {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageEntry {
-    Term(raftbare::Term),
-    VotedFor(Option<raftbare::NodeId>),
+    Term(noraft::Term),
+    VotedFor(Option<noraft::NodeId>),
     NodeGeneration(u64),
 }
 
@@ -1082,11 +1087,11 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
         match ty.as_ref() {
             "Term" => {
                 let term = value.to_member("term")?.required()?.try_into()?;
-                Ok(StorageEntry::Term(raftbare::Term::new(term)))
+                Ok(StorageEntry::Term(noraft::Term::new(term)))
             }
             "VotedFor" => {
                 let node_id: Option<u64> = value.to_member("node_id")?.try_into()?;
-                Ok(StorageEntry::VotedFor(node_id.map(raftbare::NodeId::new)))
+                Ok(StorageEntry::VotedFor(node_id.map(noraft::NodeId::new)))
             }
             "NodeGeneration" => {
                 let generation = value.to_member("generation")?.required()?.try_into()?;
@@ -1099,7 +1104,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
 
 #[derive(Debug, Default, Clone)]
 pub struct RaftNodeStateMachine {
-    pub nodes: std::collections::BTreeSet<raftbare::NodeId>,
+    pub nodes: std::collections::BTreeSet<noraft::NodeId>,
 }
 
 #[cfg(test)]
@@ -1147,7 +1152,7 @@ mod tests {
         let entry = JsonLineValue::new_internal(StorageEntry::NodeGeneration(0));
         node.load(std::slice::from_ref(&entry));
 
-        assert_eq!(node.generation, 1);
+        assert_eq!(node.inner.generation().get(), 1);
         assert_eq!(
             node.action_queue.pop_front(),
             Some(append_storage_entry_action(
@@ -1166,7 +1171,7 @@ mod tests {
         let entries = [entry1, entry2];
         node.load(&entries);
 
-        assert_eq!(node.generation, 6);
+        assert_eq!(node.inner.generation().get(), 6);
         assert_eq!(
             node.action_queue.pop_front(),
             Some(append_storage_entry_action(
@@ -1339,7 +1344,7 @@ mod tests {
         assert!(nodes[1].machine.nodes.contains(&node_id(0)));
     }
 
-    fn run_actions(nodes: &mut [RaftNode]) -> Vec<(raftbare::NodeId, Action)> {
+    fn run_actions(nodes: &mut [RaftNode]) -> Vec<(noraft::NodeId, Action)> {
         let mut actions = Vec::new();
         for _ in 0..1000 {
             let mut did_something = false;
@@ -1564,10 +1569,10 @@ mod tests {
     }
 
     fn set_leader_timeout_action() -> Action {
-        Action::SetTimeout(raftbare::Role::Leader)
+        Action::SetTimeout(noraft::Role::Leader)
     }
 
-    fn node_id(n: u64) -> raftbare::NodeId {
-        raftbare::NodeId::new(n)
+    fn node_id(n: u64) -> noraft::NodeId {
+        noraft::NodeId::new(n)
     }
 }

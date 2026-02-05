@@ -32,10 +32,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f04459ec5e667063406c9155f199d9628e1f791a2f27c0bc58165a8716e89b86"
 
 [[package]]
-name = "raftbare"
-version = "0.2.2"
+name = "noraft"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a9974bcc87328d36e891c1780e218108ff23bc3e18cbcc10b45d6933f9f9176"
+checksum = "8fa8f3584416cf34d7f4f8592cda5007dfd51d6945477bc392ee94865a56cda6"
 
 [[package]]
 name = "rufton"
@@ -44,7 +44,7 @@ dependencies = [
  "mio",
  "noargs",
  "nojson",
- "raftbare",
+ "noraft",
 ]
 
 [[package]]

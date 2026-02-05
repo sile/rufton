@@ -1,6 +1,6 @@
 pub fn fmt_log_position_members(
     f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
-    position: raftbare::LogPosition,
+    position: noraft::LogPosition,
 ) -> std::fmt::Result {
     f.member("term", position.term.get())?;
     f.member("index", position.index.get())
@@ -8,16 +8,16 @@ pub fn fmt_log_position_members(
 
 pub fn fmt_log_entry_members(
     f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
-    pos: raftbare::LogPosition,
-    entry: &raftbare::LogEntry,
+    pos: noraft::LogPosition,
+    entry: &noraft::LogEntry,
     commands: &crate::node::RecentCommands,
 ) -> std::fmt::Result {
     match entry {
-        raftbare::LogEntry::Term(term) => {
+        noraft::LogEntry::Term(term) => {
             f.member("type", "Term")?;
             f.member("term", term.get())
         }
-        raftbare::LogEntry::ClusterConfig(config) => {
+        noraft::LogEntry::ClusterConfig(config) => {
             // NOTE: This crate does not use non voters
             f.member("type", "ClusterConfig")?;
             f.member(
@@ -29,7 +29,7 @@ pub fn fmt_log_entry_members(
                 nojson::array(|f| f.elements(config.new_voters.iter().map(|v| v.get()))),
             )
         }
-        raftbare::LogEntry::Command => {
+        noraft::LogEntry::Command => {
             f.member("type", "Command")?;
             let command = commands.get(&pos.index).expect("bug");
             f.member("value", command)
@@ -39,7 +39,7 @@ pub fn fmt_log_entry_members(
 
 pub fn fmt_log_entries(
     f: &mut nojson::JsonFormatter<'_, '_>,
-    entries: &raftbare::LogEntries,
+    entries: &noraft::LogEntries,
     commands: &crate::node::RecentCommands,
 ) -> std::fmt::Result {
     f.object(|f| {
@@ -61,34 +61,37 @@ pub fn fmt_log_entries(
 
 pub fn fmt_message(
     f: &mut nojson::JsonFormatter<'_, '_>,
-    message: &raftbare::Message,
+    message: &noraft::Message,
     commands: &crate::node::RecentCommands,
 ) -> std::fmt::Result {
     f.object(|f| match message {
-        raftbare::Message::RequestVoteCall {
-            header,
+        noraft::Message::RequestVoteCall {
+            from,
+            term,
             last_position,
         } => {
             f.member("type", "RequestVoteCall")?;
-            fmt_message_header_members(f, header)?;
+            fmt_message_common_members(f, *from, *term)?;
             f.member("last_term", last_position.term.get())?;
             f.member("last_index", last_position.index.get())
         }
-        raftbare::Message::RequestVoteReply {
-            header,
+        noraft::Message::RequestVoteReply {
+            from,
+            term,
             vote_granted,
         } => {
             f.member("type", "RequestVoteReply")?;
-            fmt_message_header_members(f, header)?;
+            fmt_message_common_members(f, *from, *term)?;
             f.member("vote_granted", vote_granted)
         }
-        raftbare::Message::AppendEntriesCall {
-            header,
+        noraft::Message::AppendEntriesCall {
+            from,
+            term,
             commit_index,
             entries,
         } => {
             f.member("type", "AppendEntriesCall")?;
-            fmt_message_header_members(f, header)?;
+            fmt_message_common_members(f, *from, *term)?;
             f.member("commit_index", commit_index.get())?;
             let prev_position = entries.prev_position();
             f.member("prev_term", prev_position.term.get())?;
@@ -105,32 +108,35 @@ pub fn fmt_message(
                 }),
             )
         }
-        raftbare::Message::AppendEntriesReply {
-            header,
+        noraft::Message::AppendEntriesReply {
+            from,
+            term,
+            generation,
             last_position,
         } => {
             f.member("type", "AppendEntriesReply")?;
-            fmt_message_header_members(f, header)?;
+            fmt_message_common_members(f, *from, *term)?;
+            f.member("generation", generation.get())?;
             f.member("last_term", last_position.term.get())?;
             f.member("last_index", last_position.index.get())
         }
     })
 }
 
-fn fmt_message_header_members(
+fn fmt_message_common_members(
     f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
-    header: &raftbare::MessageHeader,
+    from: noraft::NodeId,
+    term: noraft::Term,
 ) -> std::fmt::Result {
-    f.member("from", header.from.get())?;
-    f.member("term", header.term.get())?;
-    f.member("seqno", header.seqno.get())
+    f.member("from", from.get())?;
+    f.member("term", term.get())
 }
 
 pub fn get_command_values(
     value: nojson::RawJsonValue<'_, '_>,
-    message: &raftbare::Message,
-) -> Option<impl Iterator<Item = (raftbare::LogPosition, crate::node::JsonLineValue)>> {
-    let raftbare::Message::AppendEntriesCall { entries, .. } = message else {
+    message: &noraft::Message,
+) -> Option<impl Iterator<Item = (noraft::LogPosition, crate::node::JsonLineValue)>> {
+    let noraft::Message::AppendEntriesCall { entries, .. } = message else {
         return None;
     };
 
@@ -144,7 +150,7 @@ pub fn get_command_values(
             .iter_with_positions()
             .zip(entry_values)
             .filter_map(|((pos, entry), value)| {
-                if !matches!(entry, raftbare::LogEntry::Command) {
+                if !matches!(entry, noraft::LogEntry::Command) {
                     return None;
                 };
                 let command_value = value
@@ -163,26 +169,24 @@ pub fn get_command_values(
 /// is validated; the actual command data must be managed separately by the caller.
 pub fn json_to_message(
     value: nojson::RawJsonValue<'_, '_>,
-) -> Result<raftbare::Message, nojson::JsonParseError> {
+) -> Result<noraft::Message, nojson::JsonParseError> {
     // TODO: use str
     let msg_type_str: String = value.to_member("type")?.required()?.try_into()?;
 
-    let from = raftbare::NodeId::new(value.to_member("from")?.required()?.try_into()?);
-    let term = raftbare::Term::new(value.to_member("term")?.required()?.try_into()?);
-    let seqno = raftbare::MessageSeqNo::new(value.to_member("seqno")?.required()?.try_into()?);
-
-    let header = raftbare::MessageHeader { from, term, seqno };
+    let from = noraft::NodeId::new(value.to_member("from")?.required()?.try_into()?);
+    let term = noraft::Term::new(value.to_member("term")?.required()?.try_into()?);
 
     match msg_type_str.as_str() {
         "RequestVoteCall" => {
             let last_term =
-                raftbare::Term::new(value.to_member("last_term")?.required()?.try_into()?);
+                noraft::Term::new(value.to_member("last_term")?.required()?.try_into()?);
             let last_index =
-                raftbare::LogIndex::new(value.to_member("last_index")?.required()?.try_into()?);
+                noraft::LogIndex::new(value.to_member("last_index")?.required()?.try_into()?);
 
-            Ok(raftbare::Message::RequestVoteCall {
-                header,
-                last_position: raftbare::LogPosition {
+            Ok(noraft::Message::RequestVoteCall {
+                from,
+                term,
+                last_position: noraft::LogPosition {
                     term: last_term,
                     index: last_index,
                 },
@@ -191,27 +195,28 @@ pub fn json_to_message(
         "RequestVoteReply" => {
             let vote_granted: bool = value.to_member("vote_granted")?.required()?.try_into()?;
 
-            Ok(raftbare::Message::RequestVoteReply {
-                header,
+            Ok(noraft::Message::RequestVoteReply {
+                from,
+                term,
                 vote_granted,
             })
         }
         "AppendEntriesCall" => {
             let commit_index =
-                raftbare::LogIndex::new(value.to_member("commit_index")?.required()?.try_into()?);
+                noraft::LogIndex::new(value.to_member("commit_index")?.required()?.try_into()?);
 
             let prev_term =
-                raftbare::Term::new(value.to_member("prev_term")?.required()?.try_into()?);
+                noraft::Term::new(value.to_member("prev_term")?.required()?.try_into()?);
             let prev_index =
-                raftbare::LogIndex::new(value.to_member("prev_index")?.required()?.try_into()?);
-            let prev_position = raftbare::LogPosition {
+                noraft::LogIndex::new(value.to_member("prev_index")?.required()?.try_into()?);
+            let prev_position = noraft::LogPosition {
                 term: prev_term,
                 index: prev_index,
             };
 
             let entries_array = value.to_member("entries")?.required()?.to_array()?;
 
-            let mut entries = raftbare::LogEntries::new(prev_position);
+            let mut entries = noraft::LogEntries::new(prev_position);
             for entry_value in entries_array {
                 // TODO: use str
                 let entry_type_str: String = entry_value
@@ -222,20 +227,20 @@ pub fn json_to_message(
 
                 let entry = match entry_type_str.as_str() {
                     "Term" => {
-                        let term = raftbare::Term::new(
+                        let term = noraft::Term::new(
                             entry_value.to_member("term")?.required()?.try_into()?,
                         );
-                        raftbare::LogEntry::Term(term)
+                        noraft::LogEntry::Term(term)
                     }
                     "ClusterConfig" => {
-                        let mut config = raftbare::ClusterConfig::new();
+                        let mut config = noraft::ClusterConfig::new();
                         config.voters = entry_value
                             .to_member("voters")?
                             .required()?
                             .to_array()?
                             .map(|v| {
                                 let node_id: u64 = v.try_into()?;
-                                Ok(raftbare::NodeId::new(node_id))
+                                Ok(noraft::NodeId::new(node_id))
                             })
                             .collect::<Result<_, _>>()?;
 
@@ -245,15 +250,15 @@ pub fn json_to_message(
                             .to_array()?
                             .map(|v| {
                                 let node_id: u64 = v.try_into()?;
-                                Ok(raftbare::NodeId::new(node_id))
+                                Ok(noraft::NodeId::new(node_id))
                             })
                             .collect::<Result<_, _>>()?;
 
-                        raftbare::LogEntry::ClusterConfig(config)
+                        noraft::LogEntry::ClusterConfig(config)
                     }
                     "Command" => {
                         entry_value.to_member("value")?.required()?;
-                        raftbare::LogEntry::Command
+                        noraft::LogEntry::Command
                     }
                     _ => {
                         return Err(entry_value
@@ -264,21 +269,28 @@ pub fn json_to_message(
                 entries.push(entry);
             }
 
-            Ok(raftbare::Message::AppendEntriesCall {
-                header,
+            Ok(noraft::Message::AppendEntriesCall {
+                from,
+                term,
                 commit_index,
                 entries,
             })
         }
         "AppendEntriesReply" => {
+            let generation: u64 = value
+                .to_member("generation")?
+                .required()?
+                .try_into()?;
             let last_term =
-                raftbare::Term::new(value.to_member("last_term")?.required()?.try_into()?);
+                noraft::Term::new(value.to_member("last_term")?.required()?.try_into()?);
             let last_index =
-                raftbare::LogIndex::new(value.to_member("last_index")?.required()?.try_into()?);
+                noraft::LogIndex::new(value.to_member("last_index")?.required()?.try_into()?);
 
-            Ok(raftbare::Message::AppendEntriesReply {
-                header,
-                last_position: raftbare::LogPosition {
+            Ok(noraft::Message::AppendEntriesReply {
+                from,
+                term,
+                generation: noraft::NodeGeneration::new(generation),
+                last_position: noraft::LogPosition {
                     term: last_term,
                     index: last_index,
                 },
