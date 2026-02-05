@@ -91,6 +91,11 @@ impl RaftNode {
         Ok((position, config, machine))
     }
 
+    pub fn load_snapshot(&mut self, snapshot: JsonLineValue) -> bool {
+        todo!()
+    }
+
+    // TODO: remove this fun and move instance_id to start()
     pub fn restart(
         id: raftbare::NodeId,
         instance_id: u64,
