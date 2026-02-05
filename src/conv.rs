@@ -170,8 +170,7 @@ fn parse_log_entry(
 
     let entry = match entry_type_str.as_str() {
         "Term" => {
-            let term =
-                noraft::Term::new(entry_value.to_member("term")?.required()?.try_into()?);
+            let term = noraft::Term::new(entry_value.to_member("term")?.required()?.try_into()?);
             noraft::LogEntry::Term(term)
         }
         "ClusterConfig" => noraft::LogEntry::ClusterConfig(parse_cluster_config(entry_value)?),
@@ -180,10 +179,7 @@ fn parse_log_entry(
             noraft::LogEntry::Command
         }
         _ => {
-            return Err(entry_value.invalid(format!(
-                "unknown log entry type: {}",
-                entry_type_str
-            )));
+            return Err(entry_value.invalid(format!("unknown log entry type: {}", entry_type_str)));
         }
     };
 

@@ -1,6 +1,6 @@
 use crate::node_core::RaftNode;
 use crate::node_types::{
-    Action, JsonLineValue, RecentCommands, RaftNodeStateMachine, StorageEntry,
+    Action, JsonLineValue, RaftNodeStateMachine, RecentCommands, StorageEntry,
 };
 
 impl RaftNode {

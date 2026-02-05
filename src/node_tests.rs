@@ -433,8 +433,7 @@ fn strip_memory_log() {
     // Verify recent_commands was trimmed
     let remaining_commands: Vec<_> = node0.recent_commands.keys().cloned().collect();
     assert!(
-        remaining_commands.is_empty()
-            || remaining_commands.iter().all(|idx| *idx > commit_index)
+        remaining_commands.is_empty() || remaining_commands.iter().all(|idx| *idx > commit_index)
     );
 
     // Add a new node and verify it can sync

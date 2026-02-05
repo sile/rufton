@@ -5,8 +5,11 @@ fn reregister_writable(
     stream: &mut mio::net::TcpStream,
     token: mio::Token,
 ) -> std::io::Result<()> {
-    poll.registry()
-        .reregister(stream, token, mio::Interest::READABLE | mio::Interest::WRITABLE)
+    poll.registry().reregister(
+        stream,
+        token,
+        mio::Interest::READABLE | mio::Interest::WRITABLE,
+    )
 }
 
 #[derive(Debug)]
