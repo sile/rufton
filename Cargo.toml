@@ -10,3 +10,4 @@ noraft = "0.3.0"
 
 [dev-dependencies]
 noargs = "0.4.2"
+tempfile = "3.24.0"
