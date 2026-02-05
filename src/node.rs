@@ -99,168 +99,212 @@ impl RaftNode {
         &mut self,
         entries: &'a [JsonLineValue],
     ) -> (bool, Option<nojson::RawJsonValue<'a, 'a>>) {
-        let mut last_generation: u64 = 0;
-        for entry in entries {
-            // TODO: add snapshot and other entries handling
-            let ty = entry
-                .get()
-                .to_member("type")
-                .ok()
-                .and_then(|t| t.required().ok())
-                .and_then(|t| t.to_unquoted_string_str().ok());
-            if let Some(ty) = ty {
-                if ty.as_ref() == "NodeGeneration" {
-                    if let Ok(generation_value) = entry.get_member("generation") {
-                        last_generation = generation_value;
-                    }
-                }
-            }
+        struct LoadState<'a> {
+            current_term: raftbare::Term,
+            voted_for: Option<raftbare::NodeId>,
+            config: raftbare::ClusterConfig,
+            machine: RaftNodeStateMachine,
+            log_entries: raftbare::LogEntries,
+            recent_commands: RecentCommands,
+            applied_index: raftbare::LogIndex,
+            last_generation: u64,
+            user_machine: Option<nojson::RawJsonValue<'a, 'a>>,
         }
 
-        self.generation = last_generation.saturating_add(1);
+        fn parse_log_entry(
+            entry_value: nojson::RawJsonValue<'_, '_>,
+            log_entries: &mut raftbare::LogEntries,
+            recent_commands: &mut RecentCommands,
+            config: &mut raftbare::ClusterConfig,
+        ) -> Result<(), nojson::JsonParseError> {
+            let entry_type: String = entry_value
+                .to_member("type")?
+                .required()?
+                .to_unquoted_string_str()?
+                .into_owned();
+
+            let log_entry = match entry_type.as_str() {
+                "Term" => {
+                    let term = raftbare::Term::new(
+                        entry_value.to_member("term")?.required()?.try_into()?,
+                    );
+                    raftbare::LogEntry::Term(term)
+                }
+                "ClusterConfig" => {
+                    let mut cfg = raftbare::ClusterConfig::new();
+                    cfg.voters = entry_value
+                        .to_member("voters")?
+                        .required()?
+                        .to_array()?
+                        .map(|v| {
+                            let node_id: u64 = v.try_into()?;
+                            Ok(raftbare::NodeId::new(node_id))
+                        })
+                        .collect::<Result<_, nojson::JsonParseError>>()?;
+
+                    cfg.new_voters = entry_value
+                        .to_member("new_voters")?
+                        .required()?
+                        .to_array()?
+                        .map(|v| {
+                            let node_id: u64 = v.try_into()?;
+                            Ok(raftbare::NodeId::new(node_id))
+                        })
+                        .collect::<Result<_, nojson::JsonParseError>>()?;
+
+                    *config = cfg.clone();
+                    raftbare::LogEntry::ClusterConfig(cfg)
+                }
+                "Command" => {
+                    let command_json = entry_value.to_member("value")?.required()?;
+                    let command = JsonLineValue::new_internal(command_json);
+
+                    let current_index = raftbare::LogIndex::new(
+                        log_entries.prev_position().index.get() + log_entries.len() as u64 + 1,
+                    );
+                    recent_commands.insert(current_index, command);
+
+                    raftbare::LogEntry::Command
+                }
+                _ => {
+                    return Err(
+                        entry_value.invalid(format!("unknown entry type: {entry_type}"))
+                    );
+                }
+            };
+
+            log_entries.push(log_entry);
+            Ok(())
+        }
+
+        let result: Result<LoadState<'a>, nojson::JsonParseError> = (|| {
+            let mut last_generation: u64 = 0;
+            let mut current_term = raftbare::Term::new(0);
+            let mut voted_for = None;
+            let mut config = raftbare::ClusterConfig::new();
+            let mut machine = RaftNodeStateMachine::default();
+            let mut log_entries = raftbare::LogEntries::new(raftbare::LogPosition::ZERO);
+            let mut recent_commands = std::collections::BTreeMap::new();
+            let mut applied_index = raftbare::LogIndex::ZERO;
+            let mut user_machine = None;
+            let mut snapshot_loaded = false;
+
+            for entry in entries {
+                let ty = entry
+                    .get()
+                    .to_member("type")
+                    .ok()
+                    .and_then(|t| t.required().ok())
+                    .and_then(|t| t.to_unquoted_string_str().ok());
+                let Some(ty) = ty else {
+                    continue;
+                };
+
+                match ty.as_ref() {
+                    "InstallSnapshotRpc" => {
+                        let (position, snap_config, snap_machine) =
+                            Self::parse_snapshot_json(entry)?;
+                        config = snap_config;
+                        machine = snap_machine;
+                        log_entries = raftbare::LogEntries::new(position);
+                        recent_commands = std::collections::BTreeMap::new();
+                        applied_index = position.index;
+                        snapshot_loaded = true;
+
+                        let node_state = entry.get().to_member("node_state")?.required()?;
+                        let term = raftbare::Term::new(
+                            node_state.to_member("term")?.required()?.try_into()?,
+                        );
+                        let voted_for_value: Option<u64> =
+                            node_state.to_member("voted_for")?.try_into()?;
+                        current_term = term;
+                        voted_for = voted_for_value.map(raftbare::NodeId::new);
+
+                        let user_machine_value =
+                            entry.get().to_member("user_machine")?.required()?;
+                        user_machine = Some(user_machine_value);
+
+                        let entries_array =
+                            entry.get().to_member("log_entries")?.required()?.to_array()?;
+                        for entry_value in entries_array {
+                            parse_log_entry(
+                                entry_value,
+                                &mut log_entries,
+                                &mut recent_commands,
+                                &mut config,
+                            )?;
+                        }
+                    }
+                    "NodeGeneration" => {
+                        last_generation = entry.get_member("generation")?;
+                    }
+                    "Term" => {
+                        current_term = raftbare::Term::new(entry.get_member("term")?);
+                    }
+                    "VotedFor" => {
+                        let node_id: Option<u64> = entry.get().to_member("node_id")?.try_into()?;
+                        voted_for = node_id.map(raftbare::NodeId::new);
+                    }
+                    "LogEntries" => {
+                        let prev_term = raftbare::Term::new(entry.get_member("term")?);
+                        let prev_index = raftbare::LogIndex::new(entry.get_member("index")?);
+                        if !snapshot_loaded && log_entries.len() == 0 {
+                            log_entries = raftbare::LogEntries::new(raftbare::LogPosition {
+                                term: prev_term,
+                                index: prev_index,
+                            });
+                        }
+
+                        let entries_array =
+                            entry.get().to_member("entries")?.required()?.to_array()?;
+                        for entry_value in entries_array {
+                            parse_log_entry(
+                                entry_value,
+                                &mut log_entries,
+                                &mut recent_commands,
+                                &mut config,
+                            )?;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            Ok(LoadState {
+                current_term,
+                voted_for,
+                config,
+                machine,
+                log_entries,
+                recent_commands,
+                applied_index,
+                last_generation,
+                user_machine,
+            })
+        })();
+
+        let state = match result {
+            Ok(state) => state,
+            Err(_) => return (false, None),
+        };
+
+        let log = raftbare::Log::new(state.config.clone(), state.log_entries);
+        self.inner = raftbare::Node::restart(self.inner.id(), state.current_term, state.voted_for, log);
+        self.machine = state.machine;
+        self.recent_commands = state.recent_commands;
+        self.applied_index = state.applied_index;
+        self.initialized = !state.config.voters.is_empty() || !state.config.new_voters.is_empty();
+        self.dirty_members = false;
+        self.pending_queries = std::collections::BTreeSet::new();
+        self.pending_proposals = Vec::new();
+        self.local_command_seqno = 0;
+
+        self.generation = state.last_generation.saturating_add(1);
         let entry = StorageEntry::NodeGeneration(self.generation);
         let value = JsonLineValue::new_internal(entry);
         self.push_action(Action::AppendStorageEntry(value));
 
-        // TODO: The first value indicates this load successful or not (not initialized flag)
-        // TODO: Return user machine JSON
-        (self.initialized, None)
-    }
-
-    // TODO: remove this fun
-    pub fn restart(
-        id: raftbare::NodeId,
-        generation: u64,
-        snapshot: Option<JsonLineValue>,
-        storage_entries: &[JsonLineValue],
-    ) -> Result<Self, nojson::JsonParseError> {
-        let (mut position, mut config, machine) = match snapshot {
-            Some(snapshot_value) => {
-                let (pos, cfg, m) = Self::parse_snapshot_json(&snapshot_value)?;
-                (pos, cfg, m)
-            }
-            None => (
-                raftbare::LogPosition::ZERO,
-                raftbare::ClusterConfig::new(),
-                RaftNodeStateMachine::default(),
-            ),
-        };
-
-        // Initialize log from snapshot
-        let mut log_entries = raftbare::LogEntries::new(position);
-        let mut recent_commands = std::collections::BTreeMap::new();
-
-        // Parse storage entries to restore term, voted_for, and log entries
-        let mut current_term = position.term;
-        let mut voted_for = None;
-
-        for entry in storage_entries {
-            match entry
-                .get()
-                .to_member("type")?
-                .required()?
-                .to_unquoted_string_str()?
-                .as_ref()
-            {
-                "Term" => {
-                    current_term = raftbare::Term::new(entry.get_member("term")?);
-                }
-                "VotedFor" => {
-                    let node_id: Option<u64> = entry.get().to_member("node_id")?.try_into()?;
-                    voted_for = node_id.map(raftbare::NodeId::new);
-                }
-                "LogEntries" => {
-                    // Update position from LogEntries metadata
-                    let term = raftbare::Term::new(entry.get_member("term")?);
-                    let index = raftbare::LogIndex::new(entry.get_member("index")?);
-                    position = raftbare::LogPosition { term, index };
-
-                    // Parse and append log entries
-                    let entries_array = entry.get().to_member("entries")?.required()?.to_array()?;
-
-                    for entry_value in entries_array {
-                        let entry_type: String = entry_value
-                            .to_member("type")?
-                            .required()?
-                            .to_unquoted_string_str()?
-                            .into_owned();
-
-                        let log_entry = match entry_type.as_str() {
-                            "Term" => {
-                                let term = raftbare::Term::new(
-                                    entry_value.to_member("term")?.required()?.try_into()?,
-                                );
-                                raftbare::LogEntry::Term(term)
-                            }
-                            "ClusterConfig" => {
-                                let mut cfg = raftbare::ClusterConfig::new();
-                                cfg.voters = entry_value
-                                    .to_member("voters")?
-                                    .required()?
-                                    .to_array()?
-                                    .map(|v| {
-                                        let node_id: u64 = v.try_into()?;
-                                        Ok(raftbare::NodeId::new(node_id))
-                                    })
-                                    .collect::<Result<_, nojson::JsonParseError>>()?;
-
-                                cfg.new_voters = entry_value
-                                    .to_member("new_voters")?
-                                    .required()?
-                                    .to_array()?
-                                    .map(|v| {
-                                        let node_id: u64 = v.try_into()?;
-                                        Ok(raftbare::NodeId::new(node_id))
-                                    })
-                                    .collect::<Result<_, nojson::JsonParseError>>()?;
-
-                                config = cfg.clone();
-                                raftbare::LogEntry::ClusterConfig(cfg)
-                            }
-                            "Command" => {
-                                // Extract the command value and store it
-                                let command_json = entry_value.to_member("value")?.required()?;
-                                let command = JsonLineValue::new_internal(command_json);
-
-                                // Calculate the current index (based on previous position + entries processed)
-                                let current_index = raftbare::LogIndex::new(
-                                    log_entries.prev_position().index.get()
-                                        + log_entries.len() as u64
-                                        + 1,
-                                );
-
-                                recent_commands.insert(current_index, command);
-                                raftbare::LogEntry::Command
-                            }
-                            _ => {
-                                return Err(entry_value
-                                    .invalid(format!("unknown entry type: {}", entry_type)));
-                            }
-                        };
-
-                        log_entries.push(log_entry);
-                    }
-                }
-                _ => {} // Ignore unknown entry types
-            }
-        }
-
-        let log = raftbare::Log::new(config, log_entries);
-        let inner = raftbare::Node::restart(id, current_term, voted_for, log);
-
-        Ok(Self {
-            inner,
-            machine,
-            action_queue: std::collections::VecDeque::new(),
-            recent_commands,
-            initialized: true,
-            generation,
-            local_command_seqno: 0,
-            applied_index: position.index,
-            dirty_members: false,
-            pending_queries: std::collections::BTreeSet::new(),
-            pending_proposals: Vec::new(),
-        })
+        (true, state.user_machine)
     }
 
     pub fn id(&self) -> raftbare::NodeId {
@@ -655,6 +699,9 @@ impl RaftNode {
 
         let (position, config) = self.inner.log().get_position_and_config(i).expect("bug");
         let json = nojson::object(|f| {
+            f.member("type", "InstallSnapshotRpc")?;
+            f.member("from", self.id().get())?;
+            f.member("term", self.inner.current_term().get())?;
             // TODO: Add utility funs
             f.member(
                 "position",
