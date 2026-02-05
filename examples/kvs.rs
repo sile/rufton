@@ -62,11 +62,39 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     let mut events = mio::Events::with_capacity(128);
 
     loop {
+        while let Some(action) = node.next_action() {
+            match action {
+                rufton::Action::AppendStorageEntry(x) => storage.append_entry(&x)?,
+                rufton::Action::SendSnapshot(dst) => {
+                    // TODO: take snapshot if node.recent_commits().len() gets too long
+                    unreachable!()
+                }
+                rufton::Action::SetTimeout(role) => {
+                    // TODO
+                }
+                rufton::Action::BroadcastMessage(m) => todo!(),
+                rufton::Action::SendMessage(dst, m) => todo!(),
+                rufton::Action::Commit {
+                    proposal_id,
+                    index,
+                    command,
+                } => {
+                    eprintln!("Commit: {} ({:?})", index.get(), proposal_id);
+                    if let Some(command) = command {
+                        todo!("apply to machine");
+                    }
+                }
+                rufton::Action::Query { .. } => unreachable!(),
+            }
+        }
+
         poll.poll(&mut events, None)?;
 
         for event in events.iter() {
-            server.handle_mio_event(&mut poll, event)?;
+            let _ = server.handle_mio_event(&mut poll, event)?
+                || client.handle_mio_event(&mut poll, event)?;
         }
+        assert!(client.next_response_line().is_none());
 
         while let Some((client_id, line)) = server.next_request_line() {
             match rufton::JsonRpcRequest::parse(line) {
@@ -74,11 +102,13 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                     server.reply_err(&mut poll, client_id, None, e.code(), e.message())?;
                 }
                 Ok(req) => {
-                    let Some(req_id) = req.id().cloned() else {
+                    eprintln!("{}", req.json());
+                    todo!()
+                    /*let Some(req_id) = req.id().cloned() else {
                         continue;
                     };
                     let json = req.into_json().into_owned();
-                    server.reply_ok(&mut poll, client_id, &req_id, json)?;
+                    server.reply_ok(&mut poll, client_id, &req_id, json)?;*/
                 }
             }
         }
