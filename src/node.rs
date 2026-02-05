@@ -655,12 +655,18 @@ impl RaftNode {
 
         let (position, config) = self.inner.log().get_position_and_config(i).expect("bug");
         let json = nojson::object(|f| {
-            // TODO: add term, voted_for, log
-
             // TODO: Add utility funs
             f.member(
                 "position",
                 nojson::object(|f| crate::conv::fmt_log_position_members(f, position)),
+            )?;
+            f.member(
+                "node_state",
+                nojson::object(|f| {
+                    f.member("node_id", self.id().get())?;
+                    f.member("term", self.inner.current_term().get())?;
+                    f.member("voted_for", self.inner.voted_for().map(|id| id.get()))
+                }),
             )?;
             f.member(
                 "config",
@@ -675,7 +681,7 @@ impl RaftNode {
                     )
                 }),
             )?;
-            f.member("user_machine", machine)?;
+            f.member("user_machine", machine)?; // TODO: "user_machine" と "machine" の名前は改善する
             f.member(
                 "machine",
                 nojson::object(|f| {
@@ -683,6 +689,25 @@ impl RaftNode {
                         "nodes",
                         nojson::array(|f| f.elements(self.machine.nodes.iter().map(|n| n.get()))),
                     )
+                }),
+            )?;
+            f.member(
+                "log_entries",
+                nojson::array(|f| {
+                    for (pos, entry) in self.inner.log().entries().iter_with_positions() {
+                        if pos.index <= applied_index {
+                            continue;
+                        }
+                        f.element(nojson::object(|f| {
+                            crate::conv::fmt_log_entry_members(
+                                f,
+                                pos,
+                                &entry,
+                                &self.recent_commands,
+                            )
+                        }))?;
+                    }
+                    Ok(())
                 }),
             )
         });
@@ -1055,6 +1080,104 @@ mod tests {
                 r#"{"type":"NodeGeneration","generation":6}"#
             ))
         );
+    }
+
+    #[test]
+    fn create_snapshot_includes_node_state() {
+        let mut node = RaftNode::start(node_id(0));
+        assert!(node.init_cluster());
+        while node.next_action().is_some() {}
+
+        let applied_index = node.applied_index;
+        let snapshot = node
+            .create_snapshot(applied_index, &"user")
+            .expect("snapshot should be created");
+
+        let node_state = snapshot
+            .get()
+            .to_member("node_state")
+            .expect("node_state")
+            .required()
+            .expect("node_state required");
+        let node_id: u64 = node_state
+            .to_member("node_id")
+            .expect("node_id")
+            .required()
+            .expect("node_id required")
+            .try_into()
+            .unwrap();
+        let term: u64 = node_state
+            .to_member("term")
+            .expect("term")
+            .required()
+            .expect("term required")
+            .try_into()
+            .unwrap();
+        let voted_for: Option<u64> = node_state
+            .to_member("voted_for")
+            .expect("voted_for")
+            .try_into()
+            .unwrap();
+
+        assert_eq!(node_id, node.id().get());
+        assert_eq!(term, node.inner.current_term().get());
+        assert_eq!(voted_for, node.inner.voted_for().map(|id| id.get()));
+    }
+
+    #[test]
+    fn create_snapshot_includes_log_entries_suffix() {
+        let mut node0 = RaftNode::start(node_id(0));
+        let node1 = RaftNode::start(node_id(1));
+
+        assert!(node0.init_cluster());
+        while node0.next_action().is_some() {}
+
+        node0.propose_add_node(node1.id());
+
+        let mut nodes = [node0, node1];
+        run_actions(&mut nodes);
+
+        assert!(nodes[0].inner.role().is_leader());
+        assert!(!nodes[1].inner.role().is_leader());
+
+        let command = JsonLineValue::new_internal("snapshot_test");
+        let _proposal_id = nodes[0].propose_command(command);
+
+        while let Some(action) = nodes[0].next_action() {
+            if let Action::BroadcastMessage(m) = action {
+                assert!(nodes[1].handle_message(&m));
+                break;
+            }
+        }
+
+        let applied_index = nodes[1].applied_index;
+        let snapshot = nodes[1]
+            .create_snapshot(applied_index, &"user")
+            .expect("snapshot should be created");
+
+        let entries = snapshot
+            .get()
+            .to_member("log_entries")
+            .expect("log_entries")
+            .required()
+            .expect("log_entries required")
+            .to_array()
+            .expect("log_entries array");
+
+        let mut count = 0;
+        for entry in entries {
+            let ty: String = entry
+                .to_member("type")
+                .expect("type")
+                .required()
+                .expect("type required")
+                .to_unquoted_string_str()
+                .expect("type string")
+                .into_owned();
+            assert_eq!(ty, "Command");
+            count += 1;
+        }
+        assert_eq!(count, 1);
     }
 
     #[test]
