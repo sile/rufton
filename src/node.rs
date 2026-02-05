@@ -91,11 +91,17 @@ impl RaftNode {
         Ok((position, config, machine))
     }
 
-    pub fn load_snapshot(&mut self, snapshot: JsonLineValue) -> bool {
+    pub fn load<'a>(
+        &mut self,
+        entries: &'a [JsonLineValue],
+    ) -> (bool, Option<nojson::RawJsonValue<'a, 'a>>) {
+        // TODO: Introduce Error type
+        // TODO: Increment and save node generation
+        // TODO: Return user machine JSON
         todo!()
     }
 
-    // TODO: remove this fun and move instance_id to start()
+    // TODO: remove this fun
     pub fn restart(
         id: raftbare::NodeId,
         instance_id: u64,
@@ -623,7 +629,7 @@ impl RaftNode {
 
         let (position, config) = self.inner.log().get_position_and_config(i).expect("bug");
         let json = nojson::object(|f| {
-            // TODO: add term, voted_for, log, machine
+            // TODO: add term, voted_for, log
 
             // TODO: Add utility funs
             f.member(
@@ -643,6 +649,7 @@ impl RaftNode {
                     )
                 }),
             )?;
+            f.member("user_machine", machine)?;
             f.member(
                 "machine",
                 nojson::object(|f| {
@@ -883,6 +890,7 @@ pub enum Action {
     BroadcastMessage(JsonLineValue),
     SendMessage(raftbare::NodeId, JsonLineValue),
     SendSnapshot(raftbare::NodeId),
+    // TODO: NotifyEvent
     Commit {
         proposal_id: Option<ProposalId>,
         index: raftbare::LogIndex,
