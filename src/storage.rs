@@ -57,4 +57,23 @@ impl FileStorage {
 
         Ok(())
     }
+
+    pub fn save_snapshot(&mut self, entry: &JsonLineValue) -> std::io::Result<()> {
+        use std::io::Write;
+
+        // Truncate the file to clear all existing content
+        self.file.set_len(0)?;
+
+        // Reset file pointer to the beginning
+        use std::io::Seek;
+        self.file.seek(std::io::SeekFrom::Start(0))?;
+
+        // Write the snapshot entry to the file
+        writeln!(self.file, "{}", entry)?;
+
+        // Ensure data is flushed to disk
+        self.file.flush()?;
+
+        Ok(())
+    }
 }
