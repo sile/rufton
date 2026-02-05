@@ -490,8 +490,6 @@ impl RaftNode {
         true
     }
 
-    // TODO: handle_timeout
-
     pub fn next_action(&mut self) -> Option<Action> {
         if !self.initialized {
             return None;
@@ -608,10 +606,20 @@ impl RaftNode {
         self.action_queue.pop_front()
     }
 
-    pub fn get_snapshot(&self) -> (raftbare::LogIndex, JsonLineValue) {
+    pub fn create_snapshot<T: nojson::DisplayJson>(
+        &self,
+        applied_index: raftbare::LogIndex,
+        machine: &T,
+    ) -> Option<JsonLineValue> {
         let i = self.applied_index;
+        if i != applied_index || i != self.inner.commit_index() {
+            return None;
+        }
+
         let (position, config) = self.inner.log().get_position_and_config(i).expect("bug");
         let json = nojson::object(|f| {
+            // TODO: add term, voted_for, log, machine
+
             // TODO: Add utility funs
             f.member(
                 "position",
@@ -641,7 +649,7 @@ impl RaftNode {
             )
         });
         let value = JsonLineValue::new_internal(json);
-        (i, value)
+        Some(value)
     }
 
     fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
