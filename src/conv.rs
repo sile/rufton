@@ -132,6 +132,64 @@ fn fmt_message_common_members(
     f.member("term", term.get())
 }
 
+fn parse_cluster_config(
+    entry_value: nojson::RawJsonValue<'_, '_>,
+) -> Result<noraft::ClusterConfig, nojson::JsonParseError> {
+    let mut config = noraft::ClusterConfig::new();
+    config.voters = entry_value
+        .to_member("voters")?
+        .required()?
+        .to_array()?
+        .map(|v| {
+            let node_id: u64 = v.try_into()?;
+            Ok(noraft::NodeId::new(node_id))
+        })
+        .collect::<Result<_, _>>()?;
+
+    config.new_voters = entry_value
+        .to_member("new_voters")?
+        .required()?
+        .to_array()?
+        .map(|v| {
+            let node_id: u64 = v.try_into()?;
+            Ok(noraft::NodeId::new(node_id))
+        })
+        .collect::<Result<_, _>>()?;
+
+    Ok(config)
+}
+
+fn parse_log_entry(
+    entry_value: nojson::RawJsonValue<'_, '_>,
+) -> Result<noraft::LogEntry, nojson::JsonParseError> {
+    let entry_type_str: String = entry_value
+        .to_member("type")?
+        .required()?
+        .to_unquoted_string_str()?
+        .into_owned();
+
+    let entry = match entry_type_str.as_str() {
+        "Term" => {
+            let term =
+                noraft::Term::new(entry_value.to_member("term")?.required()?.try_into()?);
+            noraft::LogEntry::Term(term)
+        }
+        "ClusterConfig" => noraft::LogEntry::ClusterConfig(parse_cluster_config(entry_value)?),
+        "Command" => {
+            entry_value.to_member("value")?.required()?;
+            noraft::LogEntry::Command
+        }
+        _ => {
+            return Err(entry_value.invalid(format!(
+                "unknown log entry type: {}",
+                entry_type_str
+            )));
+        }
+    };
+
+    Ok(entry)
+}
+
 pub fn get_command_values(
     value: nojson::RawJsonValue<'_, '_>,
     message: &noraft::Message,
@@ -218,54 +276,7 @@ pub fn json_to_message(
 
             let mut entries = noraft::LogEntries::new(prev_position);
             for entry_value in entries_array {
-                // TODO: use str
-                let entry_type_str: String = entry_value
-                    .to_member("type")?
-                    .required()?
-                    .to_unquoted_string_str()?
-                    .into_owned();
-
-                let entry = match entry_type_str.as_str() {
-                    "Term" => {
-                        let term = noraft::Term::new(
-                            entry_value.to_member("term")?.required()?.try_into()?,
-                        );
-                        noraft::LogEntry::Term(term)
-                    }
-                    "ClusterConfig" => {
-                        let mut config = noraft::ClusterConfig::new();
-                        config.voters = entry_value
-                            .to_member("voters")?
-                            .required()?
-                            .to_array()?
-                            .map(|v| {
-                                let node_id: u64 = v.try_into()?;
-                                Ok(noraft::NodeId::new(node_id))
-                            })
-                            .collect::<Result<_, _>>()?;
-
-                        config.new_voters = entry_value
-                            .to_member("new_voters")?
-                            .required()?
-                            .to_array()?
-                            .map(|v| {
-                                let node_id: u64 = v.try_into()?;
-                                Ok(noraft::NodeId::new(node_id))
-                            })
-                            .collect::<Result<_, _>>()?;
-
-                        noraft::LogEntry::ClusterConfig(config)
-                    }
-                    "Command" => {
-                        entry_value.to_member("value")?.required()?;
-                        noraft::LogEntry::Command
-                    }
-                    _ => {
-                        return Err(entry_value
-                            .invalid(format!("unknown log entry type: {}", entry_type_str)));
-                    }
-                };
-
+                let entry = parse_log_entry(entry_value)?;
                 entries.push(entry);
             }
 

@@ -1,0 +1,468 @@
+use crate::node_types::{
+    Action, Command, JsonLineValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
+    RaftNodeStateMachine,
+};
+
+#[derive(Debug, Clone)]
+enum Pending {
+    Command(JsonLineValue),
+    Query(ProposalId),
+}
+
+#[derive(Debug, Clone)]
+pub struct RaftNode {
+    pub inner: noraft::Node,
+    pub machine: RaftNodeStateMachine,
+    pub action_queue: std::collections::VecDeque<Action>,
+    pub recent_commands: RecentCommands,
+    pub initialized: bool,
+    pub local_command_seqno: u64,
+    pub applied_index: noraft::LogIndex,
+    pub dirty_members: bool,
+    pub pending_queries: std::collections::BTreeSet<(noraft::LogPosition, ProposalId)>,
+    pending_proposals: Vec<Pending>,
+}
+
+impl RaftNode {
+    pub fn start(id: noraft::NodeId) -> Self {
+        let mut action_queue = std::collections::VecDeque::new();
+        let inner = noraft::Node::start(id);
+        let entry = StorageEntry::NodeGeneration(inner.generation().get());
+        let value = JsonLineValue::new_internal(entry);
+        action_queue.push_back(Action::AppendStorageEntry(value));
+        Self {
+            inner,
+            machine: RaftNodeStateMachine::default(),
+            action_queue,
+            recent_commands: std::collections::BTreeMap::new(),
+            initialized: false,
+            local_command_seqno: 0,
+            applied_index: noraft::LogIndex::ZERO,
+            dirty_members: false,
+            pending_queries: std::collections::BTreeSet::new(),
+            pending_proposals: Vec::new(),
+        }
+    }
+
+    pub fn id(&self) -> noraft::NodeId {
+        self.inner.id()
+    }
+
+    pub fn init_cluster(&mut self) -> bool {
+        if self.initialized {
+            return false;
+        }
+
+        let initial_members = [self.inner.id()];
+        self.inner.create_cluster(&initial_members);
+        self.initialized = true;
+
+        self.propose_add_node(self.inner.id());
+
+        true
+    }
+
+    pub fn recent_commands(&self) -> &RecentCommands {
+        &self.recent_commands
+    }
+
+    pub fn strip_memory_log(&mut self, index: noraft::LogIndex) -> bool {
+        if index > self.applied_index {
+            return false;
+        }
+
+        let Some((position, config)) = self.inner.log().get_position_and_config(index) else {
+            return false;
+        };
+
+        // TODO: add note
+        if !self
+            .inner
+            .handle_snapshot_installed(position, config.clone())
+        {
+            return false;
+        }
+
+        let i = noraft::LogIndex::new(index.get() + 1);
+        self.recent_commands = self.recent_commands.split_off(&i);
+        true
+    }
+
+    // TODO: snapshot
+
+    // NOTE: Propsals should be treated as timeout by clients in the following cases:
+    // - Taking too long time (simple timeout)
+    // - Commit application to the state machine managed the node received the proposal was skipped by snapshot
+    // - Redirected proposal was discarded by any reasons (e.g. node down, redirect limit reached)
+    // - Uninitialized cluster
+    // - re-election
+
+    fn propose(&mut self, command: Command) {
+        let value = JsonLineValue::new_internal(command);
+        self.propose_command_value(value);
+    }
+
+    // TODO: in redirected case, this serialization can be eliminated
+    fn propose_command_value(&mut self, command: JsonLineValue) {
+        if !self.initialized {
+            return;
+        }
+
+        if !self.inner.role().is_leader() {
+            if let Some(maybe_leader) = self.inner.voted_for()
+                && maybe_leader != self.id()
+            {
+                self.push_action(Action::SendMessage(maybe_leader, command));
+            } else {
+                self.pending_proposals.push(Pending::Command(command));
+            }
+            return;
+        }
+
+        let position = self.inner.propose_command();
+        self.recent_commands.insert(position.index, command);
+    }
+
+    pub fn propose_command(&mut self, command: JsonLineValue) -> ProposalId {
+        let proposal_id = self.next_proposal_id();
+        let command = Command::Apply {
+            proposal_id,
+            command,
+        };
+        self.propose(command);
+        proposal_id
+    }
+
+    fn get_next_broadcast_position(&self) -> Option<noraft::LogPosition> {
+        if let Some(noraft::Message::AppendEntriesCall { entries, .. }) =
+            &self.inner.actions().broadcast_message
+            && let Some((pos, _)) = entries.iter_with_positions().next()
+        {
+            Some(pos)
+        } else {
+            None
+        }
+    }
+
+    pub fn propose_query(&mut self) -> ProposalId {
+        let proposal_id = self.next_proposal_id();
+        self.propose_query_inner(proposal_id);
+        proposal_id
+    }
+
+    fn propose_query_inner(&mut self, proposal_id: ProposalId) {
+        if self.inner.role().is_leader() {
+            let command = Command::Query;
+            let position = if let Some(position) = self.get_next_broadcast_position() {
+                position
+            } else {
+                let value = JsonLineValue::new_internal(command);
+                let position = self.inner.propose_command();
+                self.recent_commands.insert(position.index, value);
+                position
+            };
+            self.pending_queries.insert((position, proposal_id));
+        } else if let Some(maybe_leader_id) = self.inner.voted_for()
+            && maybe_leader_id != self.id()
+        {
+            let from = self.id();
+            let query_message = QueryMessage::Redirect { from, proposal_id };
+            let message = JsonLineValue::new_internal(query_message);
+            self.push_action(Action::SendMessage(maybe_leader_id, message));
+        } else {
+            self.pending_proposals.push(Pending::Query(proposal_id));
+        }
+    }
+
+    // TODO: refactor
+    fn propose_query_for_redirect(&mut self, from: noraft::NodeId, proposal_id: ProposalId) {
+        if self.inner.role().is_leader() {
+            let command = Command::Query;
+            let position = if let Some(position) = self.get_next_broadcast_position() {
+                position
+            } else {
+                let value = JsonLineValue::new_internal(command);
+                let position = self.inner.propose_command();
+                self.recent_commands.insert(position.index, value);
+                position
+            };
+            let query_message = QueryMessage::Proposed {
+                proposal_id,
+                position,
+            };
+            let message = JsonLineValue::new_internal(query_message);
+            self.push_action(Action::SendMessage(from, message));
+        } else if let Some(maybe_leader_id) = self.inner.voted_for()
+            && maybe_leader_id != self.id()
+        {
+            let query_message = QueryMessage::Redirect { from, proposal_id };
+            let message = JsonLineValue::new_internal(query_message);
+            self.push_action(Action::SendMessage(maybe_leader_id, message));
+        }
+    }
+
+    fn next_proposal_id(&mut self) -> ProposalId {
+        let proposal_id = ProposalId::new(
+            self.inner.id(),
+            self.inner.generation().get(),
+            self.local_command_seqno,
+        );
+        self.local_command_seqno += 1;
+        proposal_id
+    }
+
+    pub fn propose_add_node(&mut self, id: noraft::NodeId) -> ProposalId {
+        let proposal_id = self.next_proposal_id();
+        let command = Command::AddNode { proposal_id, id };
+        self.propose(command);
+        proposal_id
+    }
+
+    pub fn remove_node(&mut self, id: noraft::NodeId) -> ProposalId {
+        let proposal_id = self.next_proposal_id();
+        let command = Command::RemoveNode { proposal_id, id };
+        self.propose(command);
+        proposal_id
+    }
+
+    pub(crate) fn push_action(&mut self, action: Action) {
+        self.action_queue.push_back(action);
+    }
+
+    pub(crate) fn clear_pending_proposals(&mut self) {
+        self.pending_proposals.clear();
+    }
+
+    fn maybe_sync_raft_members(&mut self) {
+        if !self.dirty_members {
+            return;
+        }
+        if !self.inner.role().is_leader() {
+            return;
+        }
+        if self.inner.config().is_joint_consensus() {
+            return;
+        }
+
+        // Get current cluster config
+        let current_config = self.inner.config();
+        let current_voters: std::collections::BTreeSet<_> =
+            current_config.voters.iter().copied().collect();
+
+        // Get voters from state machine nodes
+        let machine_voters = &self.machine.nodes;
+
+        // Calculate differences
+        let nodes_to_add: Vec<_> = machine_voters
+            .iter()
+            .filter(|id| !current_voters.contains(id))
+            .copied()
+            .collect();
+        let nodes_to_remove: Vec<_> = current_voters
+            .iter()
+            .filter(|id| !machine_voters.contains(id))
+            .copied()
+            .collect();
+
+        // If there are changes, propose new configuration
+        if !nodes_to_add.is_empty() || !nodes_to_remove.is_empty() {
+            let new_config = current_config.to_joint_consensus(&nodes_to_add, &nodes_to_remove);
+            let pos = self.inner.propose_config(new_config);
+            assert_ne!(pos, noraft::LogPosition::INVALID);
+        }
+
+        self.dirty_members = false;
+    }
+
+    pub fn handle_timeout(&mut self) {
+        self.inner.handle_election_timeout();
+    }
+
+    pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
+        // TODO: use match ty {}
+        let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
+            if let Ok(c) = Command::try_from(message_value.get()) {
+                // This is a redirected command
+                //
+                // TODO: Add redirect count limit
+                self.propose(c);
+                return true;
+            } else if let Ok(m) = QueryMessage::try_from(message_value.get()) {
+                match m {
+                    QueryMessage::Redirect { from, proposal_id } => {
+                        self.propose_query_for_redirect(from, proposal_id);
+                    }
+                    QueryMessage::Proposed {
+                        proposal_id,
+                        position,
+                    } => {
+                        self.pending_queries.insert((position, proposal_id));
+                    }
+                }
+                return true;
+            } else {
+                return false;
+            }
+        };
+        if !self.initialized {
+            self.initialized = true;
+        }
+        self.inner.handle_message(&message);
+
+        let command_values = crate::conv::get_command_values(message_value.get(), &message);
+        for (pos, command) in command_values.into_iter().flatten() {
+            if self.inner.log().entries().contains(pos) {
+                self.recent_commands.insert(pos.index, command);
+            }
+        }
+
+        true
+    }
+
+    pub fn next_action(&mut self) -> Option<Action> {
+        if !self.initialized {
+            return None;
+        }
+
+        self.maybe_sync_raft_members();
+
+        if self.applied_index < self.inner.commit_index() && self.inner.role().is_leader() {
+            // Invokes heartbeat to notify the new commit position to followers as fast as possible
+            //
+            // This would affect the result of inner.actions_mut(). So call it before that (minor optimization).
+            self.inner.heartbeat();
+        }
+
+        let mut after_commit_actions = Vec::new();
+        while let Some(inner_action) = self.inner.actions_mut().next() {
+            match inner_action {
+                noraft::Action::SetElectionTimeout => {
+                    let role = self.inner.role();
+                    for p in std::mem::take(&mut self.pending_proposals)
+                        .into_iter()
+                        .filter(|_| role.is_leader())
+                    {
+                        match p {
+                            Pending::Command(command) => self.propose_command_value(command),
+                            Pending::Query(id) => self.propose_query_inner(id),
+                        }
+                    }
+
+                    self.push_action(Action::SetTimeout(role));
+                }
+                noraft::Action::SaveCurrentTerm => {
+                    let term = self.inner.current_term();
+                    let entry = StorageEntry::Term(term);
+                    let value = JsonLineValue::new_internal(entry);
+                    self.push_action(Action::AppendStorageEntry(value));
+                }
+                noraft::Action::SaveVotedFor => {
+                    let voted_for = self.inner.voted_for();
+                    let entry = StorageEntry::VotedFor(voted_for);
+                    let value = JsonLineValue::new_internal(entry);
+                    self.push_action(Action::AppendStorageEntry(value));
+                }
+                noraft::Action::BroadcastMessage(message) => {
+                    let value = JsonLineValue::new_internal(nojson::json(|f| {
+                        crate::conv::fmt_message(f, &message, &self.recent_commands)
+                    }));
+                    self.push_action(Action::BroadcastMessage(value));
+                }
+                noraft::Action::AppendLogEntries(entries) => {
+                    let value = JsonLineValue::new_internal(nojson::json(|f| {
+                        crate::conv::fmt_log_entries(f, &entries, &self.recent_commands)
+                    }));
+                    self.push_action(Action::AppendStorageEntry(value));
+                }
+                noraft::Action::SendMessage(node_id, message) => {
+                    let message = JsonLineValue::new_internal(nojson::json(|f| {
+                        crate::conv::fmt_message(f, &message, &self.recent_commands)
+                    }));
+                    self.push_action(Action::SendMessage(node_id, message));
+                }
+                noraft::Action::InstallSnapshot(dst) => {
+                    after_commit_actions.push(Action::SendSnapshot(dst));
+                }
+            }
+        }
+
+        for i in self.applied_index.get()..self.inner.commit_index().get() {
+            let index = noraft::LogIndex::new(i + 1);
+
+            let Some(command) = self.recent_commands.get(&index).cloned() else {
+                continue;
+            };
+
+            let proposal_id = command.get_optional_member("proposal_id").expect("bug");
+
+            let command = match command.get_member::<String>("type").expect("bug").as_str() {
+                "AddNode" => {
+                    self.handle_add_node(&command).expect("bug");
+                    None
+                }
+                "RemoveNode" => {
+                    self.handle_remove_node(&command).expect("bug");
+                    None
+                }
+                "Apply" => Some(command),
+                "Query" => None,
+                ty => panic!("bug: {ty}"),
+            };
+
+            self.push_action(Action::Commit {
+                index,
+                proposal_id,
+                command,
+            });
+        }
+        self.applied_index = self.inner.commit_index();
+
+        while let Some(&(position, proposal_id)) = self.pending_queries.first() {
+            let status = self.inner.get_commit_status(position);
+            match status {
+                noraft::CommitStatus::InProgress => break,
+                noraft::CommitStatus::Rejected | noraft::CommitStatus::Unknown => {
+                    self.pending_queries.pop_first();
+                }
+                noraft::CommitStatus::Committed => {
+                    self.pending_queries.pop_first();
+                    self.push_action(Action::Query { proposal_id });
+                }
+            }
+        }
+
+        for a in after_commit_actions {
+            // TODO: Should use separate queue (set of dst?)
+            self.push_action(a);
+        }
+
+        self.action_queue.pop_front()
+    }
+
+    fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
+        let id = noraft::NodeId::new(command.get_member("id")?);
+
+        if self.machine.nodes.contains(&id) {
+            return Ok(());
+        }
+
+        self.machine.nodes.insert(id);
+        self.dirty_members = true;
+
+        Ok(())
+    }
+
+    fn handle_remove_node(
+        &mut self,
+        command: &JsonLineValue,
+    ) -> Result<(), nojson::JsonParseError> {
+        let id = noraft::NodeId::new(command.get_member("id")?);
+
+        if !self.machine.nodes.remove(&id) {
+            return Ok(());
+        }
+
+        self.dirty_members = true;
+        Ok(())
+    }
+}

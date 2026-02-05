@@ -1,5 +1,14 @@
 use std::io::{Read, Write};
 
+fn reregister_writable(
+    poll: &mut mio::Poll,
+    stream: &mut mio::net::TcpStream,
+    token: mio::Token,
+) -> std::io::Result<()> {
+    poll.registry()
+        .reregister(stream, token, mio::Interest::READABLE | mio::Interest::WRITABLE)
+}
+
 #[derive(Debug)]
 pub struct JsonRpcServer {
     min_token: mio::Token,
@@ -164,11 +173,7 @@ impl JsonRpcServer {
         }
 
         if client.send_buf.is_empty() {
-            poll.registry().reregister(
-                &mut client.stream,
-                peer_id.token,
-                mio::Interest::READABLE | mio::Interest::WRITABLE,
-            )?;
+            reregister_writable(poll, &mut client.stream, peer_id.token)?;
         }
 
         writeln!(
@@ -196,11 +201,7 @@ impl JsonRpcServer {
         }
 
         if client.send_buf.is_empty() {
-            poll.registry().reregister(
-                &mut client.stream,
-                peer_id.token,
-                mio::Interest::READABLE | mio::Interest::WRITABLE,
-            )?;
+            reregister_writable(poll, &mut client.stream, peer_id.token)?;
         }
 
         writeln!(
@@ -233,11 +234,7 @@ impl JsonRpcServer {
         }
 
         if client.send_buf.is_empty() {
-            poll.registry().reregister(
-                &mut client.stream,
-                peer_id.token,
-                mio::Interest::READABLE | mio::Interest::WRITABLE,
-            )?;
+            reregister_writable(poll, &mut client.stream, peer_id.token)?;
         }
 
         writeln!(
@@ -687,11 +684,7 @@ impl JsonRpcClient {
                 .find(|(_, addr)| **addr == dst)
                 .map(|(t, _)| *t)
                 .expect("bug");
-            poll.registry().reregister(
-                &mut conn.stream,
-                token,
-                mio::Interest::READABLE | mio::Interest::WRITABLE,
-            )?;
+            reregister_writable(poll, &mut conn.stream, token)?;
         }
 
         let method = nojson::Json(method);
