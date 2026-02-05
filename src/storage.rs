@@ -45,4 +45,16 @@ impl FileStorage {
 
         Ok(entries)
     }
+
+    pub fn append_entry(&mut self, entry: &JsonLineValue) -> std::io::Result<()> {
+        use std::io::Write;
+
+        // Write the entry to the file
+        writeln!(self.file, "{}", entry)?;
+
+        // Ensure data is flushed to disk
+        self.file.flush()?;
+
+        Ok(())
+    }
 }
