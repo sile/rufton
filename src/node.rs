@@ -1,13 +1,12 @@
 pub type RecentCommands = std::collections::BTreeMap<raftbare::LogIndex, JsonLineValue>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Pending {
     Command(JsonLineValue),
     Query(ProposalId),
 }
 
-// TODO: Clone
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RaftNode {
     pub inner: raftbare::Node,
     pub machine: RaftNodeStateMachine,
@@ -1004,7 +1003,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RaftNodeStateMachine {
     pub nodes: std::collections::BTreeSet<raftbare::NodeId>,
 }
