@@ -481,6 +481,13 @@ impl RaftNode {
         proposal_id
     }
 
+    pub fn remove_node(&mut self, id: raftbare::NodeId) -> ProposalId {
+        let proposal_id = self.next_proposal_id();
+        let command = Command::RemoveNode { proposal_id, id };
+        self.propose(command);
+        proposal_id
+    }
+
     fn push_action(&mut self, action: Action) {
         self.action_queue.push_back(action);
     }
@@ -652,6 +659,10 @@ impl RaftNode {
                     self.handle_add_node(&command).expect("bug");
                     None
                 }
+                "RemoveNode" => {
+                    self.handle_remove_node(&command).expect("bug");
+                    None
+                }
                 "Apply" => Some(command),
                 "Query" => None,
                 ty => panic!("bug: {ty}"),
@@ -772,6 +783,20 @@ impl RaftNode {
         self.machine.nodes.insert(id);
         self.dirty_members = true;
 
+        Ok(())
+    }
+
+    fn handle_remove_node(
+        &mut self,
+        command: &JsonLineValue,
+    ) -> Result<(), nojson::JsonParseError> {
+        let id = raftbare::NodeId::new(command.get_member("id")?);
+
+        if !self.machine.nodes.remove(&id) {
+            return Ok(());
+        }
+
+        self.dirty_members = true;
         Ok(())
     }
 }
@@ -921,6 +946,10 @@ pub enum Command {
         proposal_id: ProposalId,
         id: raftbare::NodeId,
     },
+    RemoveNode {
+        proposal_id: ProposalId,
+        id: raftbare::NodeId,
+    },
     Apply {
         proposal_id: ProposalId,
         command: JsonLineValue,
@@ -933,6 +962,11 @@ impl nojson::DisplayJson for Command {
         match self {
             Command::AddNode { proposal_id, id } => f.object(|f| {
                 f.member("type", "AddNode")?; // TODO: add prefix to indicate internal messages
+                f.member("proposal_id", proposal_id)?;
+                f.member("id", id.get())
+            }),
+            Command::RemoveNode { proposal_id, id } => f.object(|f| {
+                f.member("type", "RemoveNode")?;
                 f.member("proposal_id", proposal_id)?;
                 f.member("id", id.get())
             }),
@@ -962,6 +996,14 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 let id = value.to_member("id")?.required()?.try_into()?;
                 Ok(Command::AddNode {
+                    proposal_id,
+                    id: raftbare::NodeId::new(id),
+                })
+            }
+            "RemoveNode" => {
+                let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
+                let id = value.to_member("id")?.required()?.try_into()?;
+                Ok(Command::RemoveNode {
                     proposal_id,
                     id: raftbare::NodeId::new(id),
                 })
@@ -1253,6 +1295,44 @@ mod tests {
 
         assert_eq!(node.machine.nodes.len(), 2);
         assert!(node.machine.nodes.contains(&node_id(1)));
+    }
+
+    #[test]
+    fn propose_remove_node() {
+        let mut node0 = RaftNode::start(node_id(0));
+        let node1 = RaftNode::start(node_id(1));
+
+        assert!(node0.init_cluster());
+        while node0.next_action().is_some() {}
+
+        node0.propose_add_node(node1.id());
+
+        let mut nodes = [node0, node1];
+        run_actions(&mut nodes);
+
+        let proposal_id = nodes[0].remove_node(node_id(1));
+
+        let mut found_commit = false;
+        let actions = run_actions(&mut nodes);
+        for (node_id, action) in actions {
+            if node_id == nodes[0].id() {
+                if let Action::Commit {
+                    proposal_id: commit_proposal_id,
+                    ..
+                } = action
+                    && commit_proposal_id == Some(proposal_id)
+                {
+                    found_commit = true;
+                    break;
+                }
+            }
+        }
+        assert!(found_commit, "Remove proposal should be committed");
+
+        assert_eq!(nodes[0].machine.nodes.len(), 1);
+        assert_eq!(nodes[1].machine.nodes.len(), 1);
+        assert!(nodes[0].machine.nodes.contains(&node_id(0)));
+        assert!(nodes[1].machine.nodes.contains(&node_id(0)));
     }
 
     fn run_actions(nodes: &mut [RaftNode]) -> Vec<(raftbare::NodeId, Action)> {
