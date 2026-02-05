@@ -897,6 +897,7 @@ pub enum Action {
 pub enum StorageEntry {
     Term(raftbare::Term),
     VotedFor(Option<raftbare::NodeId>),
+    // NodeInstanceId or NodeGeneration
 }
 
 impl nojson::DisplayJson for StorageEntry {
