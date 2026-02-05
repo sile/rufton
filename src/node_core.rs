@@ -1,6 +1,6 @@
 use crate::node_types::{
-    Action, Command, JsonLineValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
-    RaftNodeStateMachine,
+    Action, Command, JsonLineValue, ProposalId, QueryMessage, RaftNodeStateMachine,
+    RecentCommands, StorageEntry,
 };
 
 #[derive(Debug, Clone)]
@@ -109,9 +109,7 @@ impl RaftNode {
         }
 
         if !self.inner.role().is_leader() {
-            if let Some(maybe_leader) = self.inner.voted_for()
-                && maybe_leader != self.id()
-            {
+            if let Some(maybe_leader) = self.leader_id() {
                 self.push_action(Action::SendMessage(maybe_leader, command));
             } else {
                 self.pending_proposals.push(Pending::Command(command));
@@ -144,6 +142,17 @@ impl RaftNode {
         }
     }
 
+    fn leader_query_position(&mut self) -> noraft::LogPosition {
+        if let Some(position) = self.get_next_broadcast_position() {
+            return position;
+        }
+
+        let value = JsonLineValue::new_internal(Command::Query);
+        let position = self.inner.propose_command();
+        self.recent_commands.insert(position.index, value);
+        position
+    }
+
     pub fn propose_query(&mut self) -> ProposalId {
         let proposal_id = self.next_proposal_id();
         self.propose_query_inner(proposal_id);
@@ -152,19 +161,9 @@ impl RaftNode {
 
     fn propose_query_inner(&mut self, proposal_id: ProposalId) {
         if self.inner.role().is_leader() {
-            let command = Command::Query;
-            let position = if let Some(position) = self.get_next_broadcast_position() {
-                position
-            } else {
-                let value = JsonLineValue::new_internal(command);
-                let position = self.inner.propose_command();
-                self.recent_commands.insert(position.index, value);
-                position
-            };
+            let position = self.leader_query_position();
             self.pending_queries.insert((position, proposal_id));
-        } else if let Some(maybe_leader_id) = self.inner.voted_for()
-            && maybe_leader_id != self.id()
-        {
+        } else if let Some(maybe_leader_id) = self.leader_id() {
             let from = self.id();
             let query_message = QueryMessage::Redirect { from, proposal_id };
             let message = JsonLineValue::new_internal(query_message);
@@ -177,24 +176,14 @@ impl RaftNode {
     // TODO: refactor
     fn propose_query_for_redirect(&mut self, from: noraft::NodeId, proposal_id: ProposalId) {
         if self.inner.role().is_leader() {
-            let command = Command::Query;
-            let position = if let Some(position) = self.get_next_broadcast_position() {
-                position
-            } else {
-                let value = JsonLineValue::new_internal(command);
-                let position = self.inner.propose_command();
-                self.recent_commands.insert(position.index, value);
-                position
-            };
+            let position = self.leader_query_position();
             let query_message = QueryMessage::Proposed {
                 proposal_id,
                 position,
             };
             let message = JsonLineValue::new_internal(query_message);
             self.push_action(Action::SendMessage(from, message));
-        } else if let Some(maybe_leader_id) = self.inner.voted_for()
-            && maybe_leader_id != self.id()
-        {
+        } else if let Some(maybe_leader_id) = self.leader_id() {
             let query_message = QueryMessage::Redirect { from, proposal_id };
             let message = JsonLineValue::new_internal(query_message);
             self.push_action(Action::SendMessage(maybe_leader_id, message));
@@ -209,6 +198,11 @@ impl RaftNode {
         );
         self.local_command_seqno += 1;
         proposal_id
+    }
+
+    fn leader_id(&self) -> Option<noraft::NodeId> {
+        let leader = self.inner.voted_for()?;
+        (leader != self.id()).then_some(leader)
     }
 
     pub fn propose_add_node(&mut self, id: noraft::NodeId) -> ProposalId {
@@ -279,34 +273,22 @@ impl RaftNode {
     }
 
     pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
-        // TODO: use match ty {}
         let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
-            if let Ok(c) = Command::try_from(message_value.get()) {
-                // This is a redirected command
-                //
-                // TODO: Add redirect count limit
-                self.propose(c);
+            if self.handle_redirected_command(message_value) {
                 return true;
-            } else if let Ok(m) = QueryMessage::try_from(message_value.get()) {
-                match m {
-                    QueryMessage::Redirect { from, proposal_id } => {
-                        self.propose_query_for_redirect(from, proposal_id);
-                    }
-                    QueryMessage::Proposed {
-                        proposal_id,
-                        position,
-                    } => {
-                        self.pending_queries.insert((position, proposal_id));
-                    }
-                }
-                return true;
-            } else {
-                return false;
             }
+            if self.handle_query_message(message_value) {
+                return true;
+            }
+            return false;
         };
-        if !self.initialized {
-            self.initialized = true;
-        }
+
+        self.handle_raft_message(message_value, message);
+        true
+    }
+
+    fn handle_raft_message(&mut self, message_value: &JsonLineValue, message: noraft::Message) {
+        self.initialize_if_needed();
         self.inner.handle_message(&message);
 
         let command_values = crate::conv::get_command_values(message_value.get(), &message);
@@ -315,8 +297,43 @@ impl RaftNode {
                 self.recent_commands.insert(pos.index, command);
             }
         }
+    }
 
-        true
+    fn handle_redirected_command(&mut self, message_value: &JsonLineValue) -> bool {
+        if let Ok(command) = Command::try_from(message_value.get()) {
+            // This is a redirected command
+            //
+            // TODO: Add redirect count limit
+            self.propose(command);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn handle_query_message(&mut self, message_value: &JsonLineValue) -> bool {
+        if let Ok(message) = QueryMessage::try_from(message_value.get()) {
+            match message {
+                QueryMessage::Redirect { from, proposal_id } => {
+                    self.propose_query_for_redirect(from, proposal_id);
+                }
+                QueryMessage::Proposed {
+                    proposal_id,
+                    position,
+                } => {
+                    self.pending_queries.insert((position, proposal_id));
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    fn initialize_if_needed(&mut self) {
+        if !self.initialized {
+            self.initialized = true;
+        }
     }
 
     pub fn next_action(&mut self) -> Option<Action> {
@@ -325,59 +342,48 @@ impl RaftNode {
         }
 
         self.maybe_sync_raft_members();
+        self.maybe_heartbeat_on_leader();
 
+        let mut after_commit_actions = Vec::new();
+        self.process_inner_actions(&mut after_commit_actions);
+        self.emit_commit_actions();
+        self.emit_query_actions();
+        self.enqueue_after_commit_actions(after_commit_actions);
+
+        self.action_queue.pop_front()
+    }
+
+    fn maybe_heartbeat_on_leader(&mut self) {
         if self.applied_index < self.inner.commit_index() && self.inner.role().is_leader() {
             // Invokes heartbeat to notify the new commit position to followers as fast as possible
             //
             // This would affect the result of inner.actions_mut(). So call it before that (minor optimization).
             self.inner.heartbeat();
         }
+    }
 
-        let mut after_commit_actions = Vec::new();
+    fn process_inner_actions(&mut self, after_commit_actions: &mut Vec<Action>) {
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
-                noraft::Action::SetElectionTimeout => {
-                    let role = self.inner.role();
-                    for p in std::mem::take(&mut self.pending_proposals)
-                        .into_iter()
-                        .filter(|_| role.is_leader())
-                    {
-                        match p {
-                            Pending::Command(command) => self.propose_command_value(command),
-                            Pending::Query(id) => self.propose_query_inner(id),
-                        }
-                    }
-
-                    self.push_action(Action::SetTimeout(role));
-                }
+                noraft::Action::SetElectionTimeout => self.handle_set_election_timeout(),
                 noraft::Action::SaveCurrentTerm => {
                     let term = self.inner.current_term();
-                    let entry = StorageEntry::Term(term);
-                    let value = JsonLineValue::new_internal(entry);
-                    self.push_action(Action::AppendStorageEntry(value));
+                    self.enqueue_storage_entry(StorageEntry::Term(term));
                 }
                 noraft::Action::SaveVotedFor => {
                     let voted_for = self.inner.voted_for();
-                    let entry = StorageEntry::VotedFor(voted_for);
-                    let value = JsonLineValue::new_internal(entry);
-                    self.push_action(Action::AppendStorageEntry(value));
+                    self.enqueue_storage_entry(StorageEntry::VotedFor(voted_for));
                 }
                 noraft::Action::BroadcastMessage(message) => {
-                    let value = JsonLineValue::new_internal(nojson::json(|f| {
-                        crate::conv::fmt_message(f, &message, &self.recent_commands)
-                    }));
+                    let value = self.encode_message(&message);
                     self.push_action(Action::BroadcastMessage(value));
                 }
                 noraft::Action::AppendLogEntries(entries) => {
-                    let value = JsonLineValue::new_internal(nojson::json(|f| {
-                        crate::conv::fmt_log_entries(f, &entries, &self.recent_commands)
-                    }));
+                    let value = self.encode_log_entries(&entries);
                     self.push_action(Action::AppendStorageEntry(value));
                 }
                 noraft::Action::SendMessage(node_id, message) => {
-                    let message = JsonLineValue::new_internal(nojson::json(|f| {
-                        crate::conv::fmt_message(f, &message, &self.recent_commands)
-                    }));
+                    let message = self.encode_message(&message);
                     self.push_action(Action::SendMessage(node_id, message));
                 }
                 noraft::Action::InstallSnapshot(dst) => {
@@ -385,7 +391,24 @@ impl RaftNode {
                 }
             }
         }
+    }
 
+    fn handle_set_election_timeout(&mut self) {
+        let role = self.inner.role();
+        let pending = std::mem::take(&mut self.pending_proposals);
+        if role.is_leader() {
+            for p in pending {
+                match p {
+                    Pending::Command(command) => self.propose_command_value(command),
+                    Pending::Query(id) => self.propose_query_inner(id),
+                }
+            }
+        }
+
+        self.push_action(Action::SetTimeout(role));
+    }
+
+    fn emit_commit_actions(&mut self) {
         for i in self.applied_index.get()..self.inner.commit_index().get() {
             let index = noraft::LogIndex::new(i + 1);
 
@@ -416,7 +439,9 @@ impl RaftNode {
             });
         }
         self.applied_index = self.inner.commit_index();
+    }
 
+    fn emit_query_actions(&mut self) {
         while let Some(&(position, proposal_id)) = self.pending_queries.first() {
             let status = self.inner.get_commit_status(position);
             match status {
@@ -430,13 +455,30 @@ impl RaftNode {
                 }
             }
         }
+    }
 
-        for a in after_commit_actions {
+    fn enqueue_after_commit_actions(&mut self, actions: Vec<Action>) {
+        for action in actions {
             // TODO: Should use separate queue (set of dst?)
-            self.push_action(a);
+            self.push_action(action);
         }
+    }
 
-        self.action_queue.pop_front()
+    fn enqueue_storage_entry(&mut self, entry: StorageEntry) {
+        let value = JsonLineValue::new_internal(entry);
+        self.push_action(Action::AppendStorageEntry(value));
+    }
+
+    fn encode_message(&self, message: &noraft::Message) -> JsonLineValue {
+        JsonLineValue::new_internal(nojson::json(|f| {
+            crate::conv::fmt_message(f, message, &self.recent_commands)
+        }))
+    }
+
+    fn encode_log_entries(&self, entries: &noraft::LogEntries) -> JsonLineValue {
+        JsonLineValue::new_internal(nojson::json(|f| {
+            crate::conv::fmt_log_entries(f, entries, &self.recent_commands)
+        }))
     }
 
     fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
