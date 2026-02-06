@@ -134,7 +134,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             timeout_time - now
         };
         poll.poll(&mut events, Some(timeout))?;*/
-        poll.poll(&mut events, None);
+        poll.poll(&mut events, None)?;
 
         for event in events.iter() {
             let _ = server.handle_mio_event(&mut poll, event)?

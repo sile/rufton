@@ -1,15 +1,12 @@
 use std::io::{Read, Write};
 
-fn reregister_writable(
+fn reregister_interest(
     poll: &mut mio::Poll,
     stream: &mut mio::net::TcpStream,
     token: mio::Token,
+    interest: mio::Interest,
 ) -> std::io::Result<()> {
-    poll.registry().reregister(
-        stream,
-        token,
-        mio::Interest::READABLE | mio::Interest::WRITABLE,
-    )
+    poll.registry().reregister(stream, token, interest)
 }
 
 #[derive(Debug)]
@@ -183,16 +180,22 @@ impl JsonRpcServer {
             return Ok(());
         }
 
-        if client.send_buf.is_empty() {
-            reregister_writable(poll, &mut client.stream, peer_id.token)?;
+        let should_reregister = client.enqueue_and_flush(|buf| {
+            writeln!(
+                buf,
+                r#"{{"jsonrpc":"2.0","id":{},"result":{}}}"#,
+                nojson::Json(request_id),
+                nojson::Json(result)
+            )
+        })?;
+        if should_reregister {
+            reregister_interest(
+                poll,
+                &mut client.stream,
+                peer_id.token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
         }
-
-        writeln!(
-            client.send_buf,
-            r#"{{"jsonrpc":"2.0","id":{},"result":{}}}"#,
-            nojson::Json(request_id),
-            nojson::Json(result)
-        )?;
         Ok(())
     }
 
@@ -211,17 +214,23 @@ impl JsonRpcServer {
             return Ok(());
         }
 
-        if client.send_buf.is_empty() {
-            reregister_writable(poll, &mut client.stream, peer_id.token)?;
+        let should_reregister = client.enqueue_and_flush(|buf| {
+            writeln!(
+                buf,
+                r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}"}}}}"#,
+                nojson::Json(request_id),
+                code,
+                message
+            )
+        })?;
+        if should_reregister {
+            reregister_interest(
+                poll,
+                &mut client.stream,
+                peer_id.token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
         }
-
-        writeln!(
-            client.send_buf,
-            r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}"}}}}"#,
-            nojson::Json(request_id),
-            code,
-            message
-        )?;
         Ok(())
     }
 
@@ -244,18 +253,24 @@ impl JsonRpcServer {
             return Ok(());
         }
 
-        if client.send_buf.is_empty() {
-            reregister_writable(poll, &mut client.stream, peer_id.token)?;
+        let should_reregister = client.enqueue_and_flush(|buf| {
+            writeln!(
+                buf,
+                r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}","data":{}}}}}"#,
+                nojson::Json(request_id),
+                code,
+                message,
+                nojson::Json(data)
+            )
+        })?;
+        if should_reregister {
+            reregister_interest(
+                poll,
+                &mut client.stream,
+                peer_id.token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
         }
-
-        writeln!(
-            client.send_buf,
-            r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}","data":{}}}}}"#,
-            nojson::Json(request_id),
-            code,
-            message,
-            nojson::Json(data)
-        )?;
         Ok(())
     }
 }
@@ -339,22 +354,40 @@ impl Peer {
             }
         }
         if event.is_writable() {
-            while self.send_buf.len() > self.send_buf_offset {
-                match self.stream.write(&self.send_buf[self.send_buf_offset..]) {
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e),
-                    Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
-                    Ok(n) => {
-                        self.send_buf_offset += n;
-                    }
+            self.flush_send_buf()?;
+        }
+        Ok(())
+    }
+
+    fn enqueue_and_flush<F>(&mut self, write: F) -> std::io::Result<bool>
+    where
+        F: FnOnce(&mut Vec<u8>) -> std::io::Result<()>,
+    {
+        let was_empty = self.send_buf.is_empty();
+        write(&mut self.send_buf)?;
+        if self.is_connected {
+            self.flush_send_buf()?;
+        }
+        let need_writable = !self.is_connected || !self.send_buf.is_empty();
+        Ok(was_empty && need_writable)
+    }
+
+    fn flush_send_buf(&mut self) -> std::io::Result<()> {
+        while self.send_buf.len() > self.send_buf_offset {
+            match self.stream.write(&self.send_buf[self.send_buf_offset..]) {
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e),
+                Ok(0) => return Err(std::io::ErrorKind::ConnectionReset.into()),
+                Ok(n) => {
+                    self.send_buf_offset += n;
                 }
             }
-            if self.send_buf_offset > self.send_buf.len() / 2 {
-                self.send_buf.copy_within(self.send_buf_offset.., 0);
-                self.send_buf
-                    .truncate(self.send_buf.len() - self.send_buf_offset);
-                self.send_buf_offset = 0;
-            }
+        }
+        if self.send_buf_offset > self.send_buf.len() / 2 {
+            self.send_buf.copy_within(self.send_buf_offset.., 0);
+            self.send_buf
+                .truncate(self.send_buf.len() - self.send_buf_offset);
+            self.send_buf_offset = 0;
         }
         Ok(())
     }
@@ -676,8 +709,11 @@ impl JsonRpcClient {
             let mut stream = mio::net::TcpStream::connect(dst)?;
             let token = self.next_token()?;
             stream.set_nodelay(true)?;
-            poll.registry()
-                .register(&mut stream, token, mio::Interest::READABLE)?;
+            poll.registry().register(
+                &mut stream,
+                token,
+                mio::Interest::READABLE | mio::Interest::WRITABLE,
+            )?;
             let peer_id = PeerId {
                 seqno: 0,
                 token,
@@ -688,23 +724,40 @@ impl JsonRpcClient {
         }
 
         let conn = self.connections.get_mut(&dst).expect("just inserted");
-        if conn.send_buf.is_empty() {
-            reregister_writable(poll, &mut conn.stream, conn.id.token)?;
-        }
 
         let method = nojson::Json(method);
         let params = nojson::Json(params);
         if let Some(id) = id {
             let id = nojson::Json(id);
-            writeln!(
-                conn.send_buf,
-                r#"{{"jsonrpc":"2.0","id":{id},"method":{method},"params":{params}}}"#,
-            )?;
+            let should_reregister = conn.enqueue_and_flush(|buf| {
+                writeln!(
+                    buf,
+                    r#"{{"jsonrpc":"2.0","id":{id},"method":{method},"params":{params}}}"#,
+                )
+            })?;
+            if should_reregister {
+                reregister_interest(
+                    poll,
+                    &mut conn.stream,
+                    conn.id.token,
+                    mio::Interest::READABLE | mio::Interest::WRITABLE,
+                )?;
+            }
         } else {
-            writeln!(
-                conn.send_buf,
-                r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#,
-            )?;
+            let should_reregister = conn.enqueue_and_flush(|buf| {
+                writeln!(
+                    buf,
+                    r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#,
+                )
+            })?;
+            if should_reregister {
+                reregister_interest(
+                    poll,
+                    &mut conn.stream,
+                    conn.id.token,
+                    mio::Interest::READABLE | mio::Interest::WRITABLE,
+                )?;
+            }
         }
         Ok(conn.id)
     }
