@@ -76,8 +76,14 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 rufton::Action::SetTimeout(role) => {
                     timeout_time = next_timeout_time(role);
                 }
-                rufton::Action::BroadcastMessage(m) => todo!(),
-                rufton::Action::SendMessage(dst, m) => todo!(),
+                rufton::Action::BroadcastMessage(m) => {
+                    for dst in node.members() {
+                        client.send_request(&mut poll, addr(dst), None, "Internal", &m)?;
+                    }
+                }
+                rufton::Action::SendMessage(dst, m) => {
+                    client.send_request(&mut poll, addr(dst), None, "Internal", &m)?;
+                }
                 rufton::Action::Commit {
                     proposal_id,
                     index,

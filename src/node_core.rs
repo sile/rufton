@@ -48,6 +48,11 @@ impl RaftNode {
         self.inner.id()
     }
 
+    pub fn members(&self) -> impl Iterator<Item = noraft::NodeId> {
+        // self.inner.config().unique_nodes()
+        self.machine.nodes.iter().copied()
+    }
+
     pub fn init_cluster(&mut self) -> bool {
         if self.initialized {
             return false;
