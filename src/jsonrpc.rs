@@ -28,7 +28,7 @@ impl JsonRpcServer {
         max_token: mio::Token,
         listen_addr: std::net::SocketAddr,
     ) -> std::io::Result<Self> {
-        if max_token.0.saturating_sub(min_token.0) == 0 {
+        if max_token.0 <= min_token.0 + 1 {
             return Err(std::io::Error::other("token range must be at least 2"));
         }
 
@@ -36,7 +36,7 @@ impl JsonRpcServer {
         poll.registry()
             .register(&mut listener, min_token, mio::Interest::READABLE)?;
 
-        let capacity = max_token.0.saturating_sub(min_token.0);
+        let capacity = max_token.0.saturating_sub(min_token.0 + 1);
         Ok(Self {
             min_token,
             listener,
@@ -65,7 +65,7 @@ impl JsonRpcServer {
                         stream.set_nodelay(true)?;
                         poll.registry()
                             .register(&mut stream, id.token, mio::Interest::READABLE)?;
-                        let i = self.token_to_index(id.token);
+                        let i = self.token_to_index(id.token).expect("bug");
                         self.clients[i] = Some(Peer::new_connected(id, stream));
                     }
                 }
@@ -87,9 +87,10 @@ impl JsonRpcServer {
                     self.next_request_candidates.insert(event.token());
                 }
             } else {
-                let i = self.token_to_index(event.token());
-                if let Some(mut client) = self.clients[i].take() {
-                    poll.registry().deregister(&mut client.stream)?;
+                if let Some(i) = self.token_to_index(event.token()) {
+                    if let Some(mut client) = self.clients[i].take() {
+                        poll.registry().deregister(&mut client.stream)?;
+                    }
                 }
                 self.next_request_candidates.remove(&event.token());
             }
@@ -112,8 +113,15 @@ impl JsonRpcServer {
         Err(std::io::Error::other("no available tokens"))
     }
 
-    fn token_to_index(&self, token: mio::Token) -> usize {
-        token.0.saturating_sub(self.min_token.0 + 1)
+    fn token_to_index(&self, token: mio::Token) -> Option<usize> {
+        if token.0 <= self.min_token.0 {
+            return None;
+        }
+        let max_inclusive = self.min_token.0 + self.clients.len();
+        if token.0 > max_inclusive {
+            return None;
+        }
+        Some((token.0 - (self.min_token.0 + 1)) as usize)
     }
 
     fn index_to_token(&self, i: usize) -> mio::Token {
@@ -121,12 +129,12 @@ impl JsonRpcServer {
     }
 
     fn get_client(&self, token: mio::Token) -> Option<&Peer> {
-        let i = self.token_to_index(token);
+        let i = self.token_to_index(token)?;
         self.clients.get(i).and_then(|c| c.as_ref())
     }
 
     fn get_client_mut(&mut self, token: mio::Token) -> Option<&mut Peer> {
-        let i = self.token_to_index(token);
+        let i = self.token_to_index(token)?;
         self.clients.get_mut(i).and_then(|c| c.as_mut())
     }
 
@@ -597,7 +605,7 @@ pub struct JsonRpcClient {
 
 impl JsonRpcClient {
     pub fn new(min_token: mio::Token, max_token: mio::Token) -> std::io::Result<Self> {
-        if max_token.0 < min_token.0 {
+        if max_token.0 <= min_token.0 {
             return Err(std::io::Error::other("token range must be at least 1"));
         }
 
