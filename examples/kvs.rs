@@ -91,8 +91,9 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                     command,
                 } => {
                     eprintln!("Commit: {} ({:?})", index.get(), proposal_id);
+
                     if let Some(command) = command {
-                        let v = command.get();
+                        let v = command.get().to_member("command")?.required()?;
                         let ty: String = v.to_member("type")?.required()?.try_into()?; // TODO: dont use String
                         let result = match ty.as_str() {
                             "put" => {
