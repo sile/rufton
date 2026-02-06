@@ -79,7 +79,9 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 }
                 rufton::Action::BroadcastMessage(m) => {
                     for dst in node.members() {
-                        client.send_request(&mut poll, addr(dst), None, "Internal", &m)?;
+                        if dst != node_id {
+                            client.send_request(&mut poll, addr(dst), None, "Internal", &m)?;
+                        }
                     }
                 }
                 rufton::Action::SendMessage(dst, m) => {
@@ -93,7 +95,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                     eprintln!("Commit: {} ({:?})", index.get(), proposal_id);
 
                     if let Some(command) = command {
-                        let v = command.get().to_member("command")?.required()?;
+                        let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
                         let ty: String = v.to_member("type")?.required()?.try_into()?; // TODO: dont use String
                         let result = match ty.as_str() {
                             "put" => {
