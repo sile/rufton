@@ -127,6 +127,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             }
         }
 
+        let now = std::time::Instant::now();
         let timeout = if timeout_time <= now {
             std::time::Duration::from_millis(0)
         } else {
