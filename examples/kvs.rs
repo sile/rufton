@@ -60,8 +60,12 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     }
 
     let mut events = mio::Events::with_capacity(128);
-
+    let mut timeout_time = next_timeout_time(noraft::Role::Follower);
     loop {
+        if timeout_time < std::time::Instant::now() {
+            node.handle_timeout();
+        }
+
         while let Some(action) = node.next_action() {
             match action {
                 rufton::Action::AppendStorageEntry(x) => storage.append_entry(&x)?,
@@ -70,7 +74,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                     unreachable!()
                 }
                 rufton::Action::SetTimeout(role) => {
-                    // TODO
+                    timeout_time = next_timeout_time(role);
                 }
                 rufton::Action::BroadcastMessage(m) => todo!(),
                 rufton::Action::SendMessage(dst, m) => todo!(),
@@ -115,4 +119,16 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             }
         }
     }
+}
+
+fn next_timeout_time(role: noraft::Role) -> std::time::Instant {
+    let timeout_duration = if role.is_leader() {
+        // Leader sends heartbeats frequently
+        std::time::Duration::from_millis(50)
+    } else {
+        // Follower/Candidate wait longer for election timeout
+        // TODO: Add random jitter if candidate
+        std::time::Duration::from_millis(150)
+    };
+    std::time::Instant::now() + timeout_duration
 }
