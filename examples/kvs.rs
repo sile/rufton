@@ -61,6 +61,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
 
     let mut events = mio::Events::with_capacity(128);
     let mut timeout_time = next_timeout_time(noraft::Role::Follower);
+    let mut requests = std::collections::HashMap::new();
     loop {
         if timeout_time < std::time::Instant::now() {
             node.handle_timeout();
@@ -69,7 +70,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
         while let Some(action) = node.next_action() {
             match action {
                 rufton::Action::AppendStorageEntry(x) => storage.append_entry(&x)?,
-                rufton::Action::SendSnapshot(dst) => {
+                rufton::Action::SendSnapshot(_dst) => {
                     // TODO: take snapshot if node.recent_commits().len() gets too long
                     unreachable!()
                 }
@@ -91,7 +92,32 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 } => {
                     eprintln!("Commit: {} ({:?})", index.get(), proposal_id);
                     if let Some(command) = command {
-                        todo!("apply to machine");
+                        let v = command.get();
+                        let ty: String = v.to_member("type")?.required()?.try_into()?; // TODO: dont use String
+                        let result = match ty.as_str() {
+                            "put" => {
+                                let key = v.to_member("key")?.required()?.try_into()?;
+                                let value =
+                                    v.to_member("value")?.required()?.extract().into_owned();
+                                let old = machine.insert(key, value);
+                                rufton::JsonLineValue::new(nojson::object(|f| {
+                                    f.member("old", &old)
+                                }))
+                            }
+                            "get" => {
+                                let key: String = v.to_member("key")?.required()?.try_into()?; // TODO: dont use String
+                                let value = machine.get(&key);
+                                rufton::JsonLineValue::new(nojson::object(|f| {
+                                    f.member("value", value)
+                                }))
+                            }
+                            _ => rufton::JsonLineValue::new("unknown type"),
+                        };
+                        if let Some((client_id, req_id)) =
+                            proposal_id.and_then(|id| requests.remove(&id))
+                        {
+                            server.reply_ok(&mut poll, client_id, &req_id, result)?;
+                        }
                     }
                 }
                 rufton::Action::Query { .. } => unreachable!(),
@@ -114,7 +140,10 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 Ok(req) => {
                     if let Some(req_id) = req.id().cloned() {
                         // Assumes external API
-                        todo!()
+                        assert_eq!(req.method(), "Command");
+                        let params = req.params().expect("bug");
+                        let proposal_id = node.propose_command(rufton::JsonLineValue::new(params));
+                        requests.insert(proposal_id, (client_id, req_id));
                     } else {
                         // Assumes internal node communication
                         assert_eq!(req.method(), "Internal");
