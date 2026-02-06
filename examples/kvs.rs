@@ -143,6 +143,8 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 Ok(req) => {
                     if let Some(req_id) = req.id().cloned() {
                         // Assumes external API
+                        //
+                        // Example: {"jsonrpc":"2.0","method":"Command","params":{"type":"put","key":"foo","value":30},"id":0}
                         assert_eq!(req.method(), "Command");
                         let params = req.params().expect("bug");
                         let proposal_id = node.propose_command(rufton::JsonLineValue::new(params));
