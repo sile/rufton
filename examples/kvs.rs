@@ -108,9 +108,8 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                     } else {
                         // Assumes internal node communication
                         assert_eq!(req.method(), "Internal");
-                        if let Some(params) = req.params() {
-                            node.handle_message(&rufton::JsonLineValue::new(params));
-                        }
+                        let params = req.params().expect("bug");
+                        assert!(node.handle_message(&rufton::JsonLineValue::new(params)));
                     };
                 }
             }
