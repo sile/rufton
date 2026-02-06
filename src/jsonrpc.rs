@@ -689,13 +689,7 @@ impl JsonRpcClient {
 
         let conn = self.connections.get_mut(&dst).expect("just inserted");
         if conn.send_buf.is_empty() {
-            let token = self
-                .token_to_addr
-                .iter()
-                .find(|(_, addr)| **addr == dst)
-                .map(|(t, _)| *t)
-                .expect("bug");
-            reregister_writable(poll, &mut conn.stream, token)?;
+            reregister_writable(poll, &mut conn.stream, conn.id.token)?;
         }
 
         let method = nojson::Json(method);
