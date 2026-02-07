@@ -10,7 +10,7 @@ pub fn main() -> rufton::Result<()> {
 }
 
 fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
-    let mut socket = rufton::LineFramedTcpSocket::bind(addr)?;
+    let mut socket = std::net::UdpSocket::bind(addr)?;
     let mut buf = [0; 65535];
     let mut machine = KvsMachine::new();
 

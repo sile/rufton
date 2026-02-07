@@ -1,19 +1,17 @@
 use std::io::Write;
 use std::net::SocketAddr;
 
+use noraft::NodeId;
+
+type KvsMachine = std::collections::HashMap<String, usize>;
+
 pub fn main() -> rufton::Result<()> {
     let Some(arg) = std::env::args().nth(1) else {
         return Err(rufton::Error::new("missing PORT arg"));
     };
     let port: u16 = arg.parse()?;
 
-    let init_node_ids: Option<Vec<noraft::NodeId>> = Some(vec![
-        noraft::NodeId::new(9000),
-        noraft::NodeId::new(9001),
-        noraft::NodeId::new(9002),
-    ]);
-
-    let mut kvs = Kvs::new(noraft::NodeId::new(port as u64), init_node_ids)?;
+    let mut kvs = Kvs::new(noraft::NodeId::new(port as u64))?;
     kvs.run()?;
     Ok(())
 }
@@ -25,21 +23,20 @@ fn addr(id: noraft::NodeId) -> SocketAddr {
 struct Kvs {
     socket: rufton::LineFramedTcpSocket,
     node: rufton::Node,
-    machine: std::collections::HashMap<String, nojson::RawJsonOwned>,
+    machine: KvsMachine,
     requests: std::collections::HashMap<rufton::ProposalId, (SocketAddr, rufton::JsonRpcRequestId)>,
     buf: Vec<u8>,
 }
 
 impl Kvs {
-    fn new(
-        node_id: noraft::NodeId,
-        init_node_ids: Option<Vec<noraft::NodeId>>,
-    ) -> rufton::Result<Self> {
+    fn new(node_id: noraft::NodeId) -> rufton::Result<Self> {
         let socket = rufton::LineFramedTcpSocket::bind(addr(node_id))?;
-        let machine = std::collections::HashMap::new();
+        let machine = KvsMachine::new();
 
         let mut node = rufton::Node::start(node_id);
-        if let Some(members) = init_node_ids {
+
+        let members = [NodeId::new(9000), NodeId::new(9001), NodeId::new(9002)];
+        if node_id == members[0] {
             node.init_cluster(&members);
         }
 
@@ -98,20 +95,7 @@ impl Kvs {
                 if let Some(command) = command {
                     let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
                     let ty = v.to_member("type")?.required()?.as_string_str()?;
-                    let result = match ty {
-                        "put" => {
-                            let key = v.to_member("key")?.required()?.try_into()?;
-                            let value = v.to_member("value")?.required()?.extract().into_owned();
-                            let old = self.machine.insert(key, value);
-                            rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
-                        }
-                        "get" => {
-                            let key: String = v.to_member("key")?.required()?.try_into()?; // TODO: dont use String
-                            let value = self.machine.get(&key);
-                            rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
-                        }
-                        _ => rufton::JsonLineValue::new("unknown type"),
-                    };
+                    let result = apply(&mut self.machine, ty, v)?;
                     if let Some((client_addr, req_id)) =
                         proposal_id.and_then(|id| self.requests.remove(&id))
                     {
@@ -150,5 +134,26 @@ impl Kvs {
         )?;
         self.socket.send_to(&buf, dst)?;
         Ok(())
+    }
+}
+
+fn apply(
+    machine: &mut KvsMachine,
+    method: &str,
+    params: nojson::RawJsonValue,
+) -> rufton::Result<String> {
+    match method {
+        "put" => {
+            let key: String = params.to_member("key")?.required()?.try_into()?;
+            let value: usize = params.to_member("value")?.required()?.try_into()?;
+            let old = machine.insert(key, value);
+            Ok(format!(r#"{{"old": {}}}"#, nojson::Json(old)))
+        }
+        "get" => {
+            let key: &str = params.to_member("key")?.required()?.try_into()?;
+            let value = machine.get(key);
+            Ok(format!(r#"{{"value": {}}}"#, nojson::Json(value)))
+        }
+        _ => Err(rufton::Error::new("unknown method")),
     }
 }
