@@ -162,13 +162,9 @@ fn parse_cluster_config(
 fn parse_log_entry(
     entry_value: nojson::RawJsonValue<'_, '_>,
 ) -> Result<noraft::LogEntry, nojson::JsonParseError> {
-    let entry_type_str: String = entry_value
-        .to_member("type")?
-        .required()?
-        .to_unquoted_string_str()?
-        .into_owned();
+    let entry_type = entry_value.to_member("type")?.required()?.as_string_str()?;
 
-    let entry = match entry_type_str.as_str() {
+    let entry = match entry_type {
         "Term" => {
             let term = noraft::Term::new(entry_value.to_member("term")?.required()?.try_into()?);
             noraft::LogEntry::Term(term)
@@ -179,7 +175,7 @@ fn parse_log_entry(
             noraft::LogEntry::Command
         }
         _ => {
-            return Err(entry_value.invalid(format!("unknown log entry type: {}", entry_type_str)));
+            return Err(entry_value.invalid(format!("unknown log entry type: {entry_type}")));
         }
     };
 
@@ -224,13 +220,12 @@ pub fn get_command_values(
 pub fn json_to_message(
     value: nojson::RawJsonValue<'_, '_>,
 ) -> Result<noraft::Message, nojson::JsonParseError> {
-    // TODO: use str
-    let msg_type_str: String = value.to_member("type")?.required()?.try_into()?;
+    let msg_type = value.to_member("type")?.required()?.as_string_str()?;
 
     let from = noraft::NodeId::new(value.to_member("from")?.required()?.try_into()?);
     let term = noraft::Term::new(value.to_member("term")?.required()?.try_into()?);
 
-    match msg_type_str.as_str() {
+    match msg_type {
         "RequestVoteCall" => {
             let last_term =
                 noraft::Term::new(value.to_member("last_term")?.required()?.try_into()?);
@@ -300,6 +295,6 @@ pub fn json_to_message(
                 },
             })
         }
-        _ => Err(value.invalid(format!("Unknown message type: {}", msg_type_str))),
+        _ => Err(value.invalid(format!("Unknown message type: {msg_type}"))),
     }
 }

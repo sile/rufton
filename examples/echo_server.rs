@@ -55,9 +55,7 @@ fn send_response_err(
     write!(
         &mut buf,
         r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}"}}}}"#,
-        id,
-        code,
-        message
+        id, code, message
     )?;
     socket.send_to(&buf, dst)?;
     Ok(())

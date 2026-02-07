@@ -153,14 +153,13 @@ fn create_snapshot_includes_log_entries_suffix() {
 
     let mut count = 0;
     for entry in entries {
-        let ty: String = entry
+        let ty = entry
             .to_member("type")
             .expect("type")
             .required()
             .expect("type required")
-            .to_unquoted_string_str()
-            .expect("type string")
-            .into_owned();
+            .as_string_str()
+            .expect("type string");
         assert_eq!(ty, "Command");
         count += 1;
     }

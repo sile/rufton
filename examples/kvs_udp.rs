@@ -173,8 +173,8 @@ fn drain_actions(
 
                 if let Some(command) = command {
                     let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
-                    let ty: String = v.to_member("type")?.required()?.try_into()?; // TODO: dont use String
-                    let result = match ty.as_str() {
+                    let ty = v.to_member("type")?.required()?.as_string_str()?;
+                    let result = match ty {
                         "put" => {
                             let key = v.to_member("key")?.required()?.try_into()?;
                             let value = v.to_member("value")?.required()?.extract().into_owned();

@@ -72,13 +72,9 @@ impl Node {
             recent_commands: &mut RecentCommands,
             config: &mut noraft::ClusterConfig,
         ) -> Result<(), nojson::JsonParseError> {
-            let entry_type: String = entry_value
-                .to_member("type")?
-                .required()?
-                .to_unquoted_string_str()?
-                .into_owned();
+            let entry_type = entry_value.to_member("type")?.required()?.as_string_str()?;
 
-            let log_entry = match entry_type.as_str() {
+            let log_entry = match entry_type {
                 "Term" => {
                     let term =
                         noraft::Term::new(entry_value.to_member("term")?.required()?.try_into()?);
