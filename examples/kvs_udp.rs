@@ -94,6 +94,11 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     let mut requests = std::collections::HashMap::new();
     let mut buf = [0u8; 65535];
     loop {
+        let now = std::time::Instant::now();
+        if timeout_time < now {
+            node.handle_timeout();
+        }
+
         drain_actions(
             &socket,
             &mut storage,
@@ -103,16 +108,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             &mut timeout_time,
         )?;
 
-        if timeout_time < std::time::Instant::now() {
-            node.handle_timeout();
-        }
-
-        let now = std::time::Instant::now();
-        let timeout = if timeout_time <= now {
-            std::time::Duration::from_millis(0)
-        } else {
-            timeout_time - now
-        };
+        let timeout = timeout_time.saturating_duration_since(now);
         socket.set_read_timeout(Some(timeout))?;
 
         let (len, src_addr) = match socket.recv_from(&mut buf) {
