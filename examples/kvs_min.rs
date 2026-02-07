@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::net::SocketAddr;
 
 use noraft::NodeId;
@@ -99,32 +98,14 @@ impl Kvs {
                     let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
                     let ty = v.to_member("type")?.required()?.as_string_str()?;
                     let result = apply(&mut self.machine, ty, v)?;
-                    if let Some((client_addr, req_id)) =
-                        proposal_id.and_then(|id| self.requests.remove(&id))
-                    {
-                        self.send_response(client_addr, req_id, result)?;
+                    if let Some((addr, id)) = proposal_id.and_then(|id| self.requests.remove(&id)) {
+                        let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
+                        self.socket.send_to(res.as_bytes(), addr)?;
                     }
                 }
             }
             _ => todo!(),
         }
-        Ok(())
-    }
-
-    fn send_response<T: nojson::DisplayJson>(
-        &mut self,
-        dst: SocketAddr,
-        request_id: u64,
-        result: T,
-    ) -> std::io::Result<()> {
-        let id = nojson::Json(request_id);
-        let result = nojson::Json(result);
-        let mut buf = Vec::new();
-        write!(
-            &mut buf,
-            r#"{{"jsonrpc":"2.0","id":{id},"result":{result}}}"#,
-        )?;
-        self.socket.send_to(&buf, dst)?;
         Ok(())
     }
 }
