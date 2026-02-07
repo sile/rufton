@@ -1,8 +1,10 @@
 use std::net::SocketAddr;
 
 use noraft::NodeId;
+use rufton::{JsonLineValue, Node, Result};
 
 type KvsMachine = std::collections::HashMap<String, usize>;
+type Socket = rufton::LineFramedTcpSocket;
 
 pub fn main() -> rufton::Result<()> {
     let Some(arg) = std::env::args().nth(1) else {
@@ -14,7 +16,7 @@ pub fn main() -> rufton::Result<()> {
 }
 
 fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
-    let mut socket = rufton::LineFramedTcpSocket::bind(addr)?;
+    let mut sock = Socket::bind(addr)?;
     let mut machine = KvsMachine::new();
 
     let node_id = noraft::NodeId::new(addr.port() as u64);
@@ -28,24 +30,21 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
     loop {
         while let Some(action) = node.next_action() {
             match action {
-                rufton::Action::BroadcastMessage(msg) => {
-                    broadcast_message(&mut socket, &node, msg)?;
-                }
-                rufton::Action::SendMessage(dst, msg) => {
-                    send_message(&mut socket, dst, msg)?;
-                }
+                rufton::Action::BroadcastMessage(msg) => broadcast_message(&mut sock, &node, msg)?,
+                rufton::Action::SendMessage(dst, msg) => send_message(&mut sock, dst, msg)?,
                 rufton::Action::Commit {
                     proposal_id,
                     command: Some(command), // TDOO: remove
                     ..
                 } => {
-                    handle_command(&mut socket, &mut machine, proposal_id.is_some(), command)?;
+                    // TODO: call apply() here
+                    handle_command(&mut sock, &mut machine, proposal_id.is_some(), command)?;
                 }
                 _ => todo!(),
             }
         }
 
-        let (len, src_addr) = socket.recv_from(&mut buf)?;
+        let (len, src_addr) = sock.recv_from(&mut buf)?;
         let text = str::from_utf8(&buf[..len])?; // TODO: note
         let json = nojson::RawJson::parse(text)?;
         let request = json.value();
@@ -69,36 +68,28 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
     }
 }
 
-fn broadcast_message(
-    socket: &mut rufton::LineFramedTcpSocket,
-    node: &rufton::Node,
-    msg: rufton::JsonLineValue,
-) -> rufton::Result<()> {
+fn broadcast_message(sock: &mut Socket, node: &Node, msg: JsonLineValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
     for dst in node.peers() {
         let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
-        socket.send_to(req.as_bytes(), addr)?;
+        sock.send_to(req.as_bytes(), addr)?;
     }
     Ok(())
 }
 
-fn send_message(
-    socket: &mut rufton::LineFramedTcpSocket,
-    dst: noraft::NodeId,
-    msg: rufton::JsonLineValue,
-) -> rufton::Result<()> {
+fn send_message(sock: &mut Socket, dst: NodeId, msg: JsonLineValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
     let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
-    socket.send_to(req.as_bytes(), addr)?;
+    sock.send_to(req.as_bytes(), addr)?;
     Ok(())
 }
 
 fn handle_command(
-    socket: &mut rufton::LineFramedTcpSocket,
+    sock: &mut Socket,
     machine: &mut KvsMachine,
     is_proposed: bool,
-    command: rufton::JsonLineValue,
-) -> rufton::Result<()> {
+    command: JsonLineValue,
+) -> Result<()> {
     let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
     let method: &str = v.to_member("method")?.required()?.try_into()?;
     let params = v.to_member("params")?.required()?;
@@ -108,17 +99,13 @@ fn handle_command(
     let result = apply(machine, method, params)?;
     if is_proposed {
         let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
-        socket.send_to(res.as_bytes(), src)?;
+        sock.send_to(res.as_bytes(), src)?;
     }
 
     Ok(())
 }
 
-fn apply(
-    machine: &mut KvsMachine,
-    method: &str,
-    params: nojson::RawJsonValue,
-) -> rufton::Result<String> {
+fn apply(machine: &mut KvsMachine, method: &str, params: nojson::RawJsonValue) -> Result<String> {
     match method {
         "put" => {
             let key: String = params.to_member("key")?.required()?.try_into()?;
