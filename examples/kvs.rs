@@ -5,8 +5,7 @@ pub fn main() -> noargs::Result<()> {
     let mut args = noargs::raw_args();
     noargs::HELP_FLAG.take_help(&mut args);
 
-    let port: u16 = noargs::opt("port")
-        .short('p')
+    let port: u16 = noargs::arg("PORT")
         .example("9000")
         .take(&mut args)
         .then(|a| a.value().parse())?;
