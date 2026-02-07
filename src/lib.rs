@@ -12,7 +12,7 @@ pub use crate::jsonrpc::{
     JsonRpcServer,
 };
 pub use crate::node::{
-    Action, Command, JsonLineValue, ProposalId, QueryMessage, RaftNode, RaftNodeStateMachine,
+    Action, Command, JsonLineValue, Node, NodeStateMachine, ProposalId, QueryMessage,
     RecentCommands, StorageEntry,
 };
 pub use crate::storage::FileStorage;

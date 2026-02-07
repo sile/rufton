@@ -310,6 +310,6 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct RaftNodeStateMachine {
+pub struct NodeStateMachine {
     pub nodes: std::collections::BTreeSet<noraft::NodeId>,
 }

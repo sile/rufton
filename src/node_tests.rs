@@ -1,8 +1,8 @@
-use crate::{Action, JsonLineValue, RaftNode, StorageEntry};
+use crate::{Action, JsonLineValue, Node, StorageEntry};
 
 #[test]
 fn init_cluster() {
-    let mut node = RaftNode::start(node_id(0));
+    let mut node = Node::start(node_id(0));
     assert!(node.init_cluster());
     assert!(!node.init_cluster());
     assert_eq!(
@@ -35,7 +35,7 @@ fn init_cluster() {
 
 #[test]
 fn load_increments_generation() {
-    let mut node = RaftNode::start(node_id(0));
+    let mut node = Node::start(node_id(0));
     node.action_queue.clear();
 
     let entry = JsonLineValue::new_internal(StorageEntry::NodeGeneration(0));
@@ -52,7 +52,7 @@ fn load_increments_generation() {
 
 #[test]
 fn load_uses_last_generation() {
-    let mut node = RaftNode::start(node_id(0));
+    let mut node = Node::start(node_id(0));
     node.action_queue.clear();
 
     let entry1 = JsonLineValue::new_internal(StorageEntry::NodeGeneration(2));
@@ -71,7 +71,7 @@ fn load_uses_last_generation() {
 
 #[test]
 fn create_snapshot_includes_node_state() {
-    let mut node = RaftNode::start(node_id(0));
+    let mut node = Node::start(node_id(0));
     assert!(node.init_cluster());
     while node.next_action().is_some() {}
 
@@ -113,8 +113,8 @@ fn create_snapshot_includes_node_state() {
 
 #[test]
 fn create_snapshot_includes_log_entries_suffix() {
-    let mut node0 = RaftNode::start(node_id(0));
-    let node1 = RaftNode::start(node_id(1));
+    let mut node0 = Node::start(node_id(0));
+    let node1 = Node::start(node_id(1));
 
     assert!(node0.init_cluster());
     while node0.next_action().is_some() {}
@@ -169,7 +169,7 @@ fn create_snapshot_includes_log_entries_suffix() {
 
 #[test]
 fn propose_add_node() {
-    let mut node = RaftNode::start(node_id(0));
+    let mut node = Node::start(node_id(0));
     assert!(node.init_cluster());
     while node.next_action().is_some() {}
 
@@ -197,8 +197,8 @@ fn propose_add_node() {
 
 #[test]
 fn propose_remove_node() {
-    let mut node0 = RaftNode::start(node_id(0));
-    let node1 = RaftNode::start(node_id(1));
+    let mut node0 = Node::start(node_id(0));
+    let node1 = Node::start(node_id(1));
 
     assert!(node0.init_cluster());
     while node0.next_action().is_some() {}
@@ -233,7 +233,7 @@ fn propose_remove_node() {
     assert!(nodes[1].machine.nodes.contains(&node_id(0)));
 }
 
-fn run_actions(nodes: &mut [RaftNode]) -> Vec<(noraft::NodeId, Action)> {
+fn run_actions(nodes: &mut [Node]) -> Vec<(noraft::NodeId, Action)> {
     let mut actions = Vec::new();
     for _ in 0..1000 {
         let mut did_something = false;
@@ -277,8 +277,8 @@ fn run_actions(nodes: &mut [RaftNode]) -> Vec<(noraft::NodeId, Action)> {
 
 #[test]
 fn two_node_broadcast_message_handling() {
-    let mut node0 = RaftNode::start(node_id(0));
-    let node1 = RaftNode::start(node_id(1));
+    let mut node0 = Node::start(node_id(0));
+    let node1 = Node::start(node_id(1));
 
     assert!(node0.init_cluster());
     while node0.next_action().is_some() {}
@@ -294,8 +294,8 @@ fn two_node_broadcast_message_handling() {
 
 #[test]
 fn propose_command_to_non_leader_node() {
-    let mut node0 = RaftNode::start(node_id(0));
-    let node1 = RaftNode::start(node_id(1));
+    let mut node0 = Node::start(node_id(0));
+    let node1 = Node::start(node_id(1));
 
     assert!(node0.init_cluster());
     while node0.next_action().is_some() {}
@@ -336,8 +336,8 @@ fn propose_command_to_non_leader_node() {
 
 #[test]
 fn propose_query() {
-    let mut node0 = RaftNode::start(node_id(0));
-    let node1 = RaftNode::start(node_id(1));
+    let mut node0 = Node::start(node_id(0));
+    let node1 = Node::start(node_id(1));
 
     assert!(node0.init_cluster());
     while node0.next_action().is_some() {}
@@ -372,8 +372,8 @@ fn propose_query() {
 
 #[test]
 fn propose_query_on_non_leader_node() {
-    let mut node0 = RaftNode::start(node_id(0));
-    let node1 = RaftNode::start(node_id(1));
+    let mut node0 = Node::start(node_id(0));
+    let node1 = Node::start(node_id(1));
 
     assert!(node0.init_cluster());
     while node0.next_action().is_some() {}
@@ -408,7 +408,7 @@ fn propose_query_on_non_leader_node() {
 
 #[test]
 fn strip_memory_log() {
-    let mut node0 = RaftNode::start(node_id(0));
+    let mut node0 = Node::start(node_id(0));
 
     // Create single node cluster
     assert!(node0.init_cluster());
@@ -437,7 +437,7 @@ fn strip_memory_log() {
     );
 
     // Add a new node and verify it can sync
-    let node1 = RaftNode::start(node_id(1));
+    let node1 = Node::start(node_id(1));
     node0.propose_add_node(node1.id());
 
     let mut nodes = [node0, node1];

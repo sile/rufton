@@ -82,7 +82,7 @@ impl FileStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::{JsonLineValue, RaftNode, StorageEntry};
+    use crate::node::{JsonLineValue, Node, StorageEntry};
     use std::fs;
     use tempfile::TempDir;
 
@@ -93,7 +93,7 @@ mod tests {
         let storage_path = temp_dir.path().join("storage.jsonl");
 
         // Initialize a single node cluster and save entries
-        let mut node = RaftNode::start(noraft::NodeId::new(0));
+        let mut node = Node::start(noraft::NodeId::new(0));
         assert!(node.init_cluster());
 
         // Collect storage entries from actions

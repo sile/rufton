@@ -1,17 +1,11 @@
-use crate::node_core::RaftNode;
-use crate::node_types::{
-    Action, JsonLineValue, RaftNodeStateMachine, RecentCommands, StorageEntry,
-};
+use crate::node_core::Node;
+use crate::node_types::{Action, JsonLineValue, NodeStateMachine, RecentCommands, StorageEntry};
 
-impl RaftNode {
+impl Node {
     fn parse_snapshot_json(
         snapshot: &JsonLineValue,
     ) -> Result<
-        (
-            noraft::LogPosition,
-            noraft::ClusterConfig,
-            RaftNodeStateMachine,
-        ),
+        (noraft::LogPosition, noraft::ClusterConfig, NodeStateMachine),
         nojson::JsonParseError,
     > {
         let snapshot_json = snapshot.get();
@@ -46,7 +40,7 @@ impl RaftNode {
         // Extract machine state
         let machine_json = snapshot_json.to_member("machine")?.required()?;
         let nodes_json = machine_json.to_member("nodes")?.required()?;
-        let mut machine = RaftNodeStateMachine::default();
+        let mut machine = NodeStateMachine::default();
 
         for node_id in nodes_json.to_array()? {
             let id: u64 = node_id.try_into()?;
@@ -64,7 +58,7 @@ impl RaftNode {
             current_term: noraft::Term,
             voted_for: Option<noraft::NodeId>,
             config: noraft::ClusterConfig,
-            machine: RaftNodeStateMachine,
+            machine: NodeStateMachine,
             log_entries: noraft::LogEntries,
             recent_commands: RecentCommands,
             applied_index: noraft::LogIndex,
@@ -140,7 +134,7 @@ impl RaftNode {
             let mut current_term = noraft::Term::new(0);
             let mut voted_for = None;
             let mut config = noraft::ClusterConfig::new();
-            let mut machine = RaftNodeStateMachine::default();
+            let mut machine = NodeStateMachine::default();
             let mut log_entries = noraft::LogEntries::new(noraft::LogPosition::ZERO);
             let mut recent_commands = std::collections::BTreeMap::new();
             let mut applied_index = noraft::LogIndex::ZERO;

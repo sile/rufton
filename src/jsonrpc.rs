@@ -54,8 +54,7 @@ impl LineBuffer {
 
     fn compact_if_needed(&mut self) {
         if self.next_line_start > 0 {
-            self.buf
-                .copy_within(self.next_line_start..self.offset, 0);
+            self.buf.copy_within(self.next_line_start..self.offset, 0);
             self.offset -= self.next_line_start;
             self.next_line_start = 0;
         }
@@ -397,9 +396,9 @@ impl ConnectionCore {
                 let i = self.tokens.index(token)?;
                 slots.get(i)?.as_ref().map(|conn| conn.send.pending_bytes())
             }
-            ConnectionStorage::Map(connections) => {
-                connections.get(&token).map(|conn| conn.send.pending_bytes())
-            }
+            ConnectionStorage::Map(connections) => connections
+                .get(&token)
+                .map(|conn| conn.send.pending_bytes()),
         }
     }
 
@@ -536,7 +535,8 @@ impl JsonRpcServer {
                         stream.set_nodelay(true)?;
                         poll.registry()
                             .register(&mut stream, id.token, mio::Interest::READABLE)?;
-                        self.core.insert(id.token, Connection::new_connected(id, stream));
+                        self.core
+                            .insert(id.token, Connection::new_connected(id, stream));
                     }
                 }
             }
@@ -597,9 +597,8 @@ impl JsonRpcServer {
             return Ok(());
         };
 
-        let should_reregister = client.enqueue_and_flush(|buf| {
-            write_response_err(buf, request_id, code, message)
-        })?;
+        let should_reregister =
+            client.enqueue_and_flush(|buf| write_response_err(buf, request_id, code, message))?;
         if should_reregister {
             reregister_interest(
                 poll,

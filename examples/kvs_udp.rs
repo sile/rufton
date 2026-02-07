@@ -66,7 +66,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     let socket = UdpSocket::bind(addr(node_id))?;
     eprintln!("Started node {}", node_id.get());
 
-    let mut node = rufton::RaftNode::start(node_id);
+    let mut node = rufton::Node::start(node_id);
     let mut machine = std::collections::HashMap::<String, nojson::RawJsonOwned>::new();
 
     let mut storage = rufton::FileStorage::open(format!("/tmp/kvs-{}.jsonl", node_id.get()))?;
@@ -136,7 +136,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
 fn drain_actions(
     socket: &UdpSocket,
     storage: &mut rufton::FileStorage,
-    node: &mut rufton::RaftNode,
+    node: &mut rufton::Node,
     machine: &mut std::collections::HashMap<String, nojson::RawJsonOwned>,
     requests: &mut std::collections::HashMap<
         rufton::ProposalId,

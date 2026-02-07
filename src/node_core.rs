@@ -1,5 +1,5 @@
 use crate::node_types::{
-    Action, Command, JsonLineValue, ProposalId, QueryMessage, RaftNodeStateMachine, RecentCommands,
+    Action, Command, JsonLineValue, NodeStateMachine, ProposalId, QueryMessage, RecentCommands,
     StorageEntry,
 };
 
@@ -10,9 +10,9 @@ enum Pending {
 }
 
 #[derive(Debug, Clone)]
-pub struct RaftNode {
+pub struct Node {
     pub inner: noraft::Node,
-    pub machine: RaftNodeStateMachine,
+    pub machine: NodeStateMachine,
     pub action_queue: std::collections::VecDeque<Action>,
     pub recent_commands: RecentCommands,
     pub initialized: bool,
@@ -23,7 +23,7 @@ pub struct RaftNode {
     pending_proposals: Vec<Pending>,
 }
 
-impl RaftNode {
+impl Node {
     pub fn start(id: noraft::NodeId) -> Self {
         let mut action_queue = std::collections::VecDeque::new();
         let inner = noraft::Node::start(id);
@@ -32,7 +32,7 @@ impl RaftNode {
         action_queue.push_back(Action::AppendStorageEntry(value));
         Self {
             inner,
-            machine: RaftNodeStateMachine::default(),
+            machine: NodeStateMachine::default(),
             action_queue,
             recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
@@ -277,6 +277,7 @@ impl RaftNode {
         self.inner.handle_election_timeout();
     }
 
+    // TODO: take JsonRpcRequest
     pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
         let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
             if self.handle_redirected_command(message_value) {
