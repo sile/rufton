@@ -15,10 +15,6 @@ pub fn main() -> rufton::Result<()> {
     Ok(())
 }
 
-fn addr(id: noraft::NodeId) -> SocketAddr {
-    SocketAddr::from(([127, 0, 0, 1], id.get() as u16))
-}
-
 struct Kvs {
     socket: rufton::LineFramedTcpSocket,
     node: rufton::Node,
@@ -28,7 +24,8 @@ struct Kvs {
 
 impl Kvs {
     fn new(node_id: noraft::NodeId) -> rufton::Result<Self> {
-        let socket = rufton::LineFramedTcpSocket::bind(addr(node_id))?;
+        let addr = SocketAddr::from(([127, 0, 0, 1], node_id.get() as u16));
+        let socket = rufton::LineFramedTcpSocket::bind(addr)?;
         let machine = KvsMachine::new();
 
         let mut node = rufton::Node::start(node_id);
@@ -80,12 +77,14 @@ impl Kvs {
             rufton::Action::BroadcastMessage(msg) => {
                 let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
                 for dst in self.node.peers() {
-                    self.socket.send_to(req.as_bytes(), addr(dst))?;
+                    let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
+                    self.socket.send_to(req.as_bytes(), addr)?;
                 }
             }
             rufton::Action::SendMessage(dst, msg) => {
                 let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
-                self.socket.send_to(req.as_bytes(), addr(dst))?;
+                let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
+                self.socket.send_to(req.as_bytes(), addr)?;
             }
             rufton::Action::Commit {
                 proposal_id,
