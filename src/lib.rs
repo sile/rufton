@@ -9,8 +9,7 @@ pub mod node;
 pub mod storage;
 
 pub use crate::jsonrpc::{
-    JsonRpcClient, JsonRpcPredefinedError, JsonRpcRequest, JsonRpcRequestId, JsonRpcResponse,
-    JsonRpcServer,
+    JsonRpcPredefinedError, JsonRpcRequest, JsonRpcRequestId, JsonRpcResponse,
 };
 pub use crate::node::{
     Action, Command, JsonLineValue, Node, NodeStateMachine, ProposalId, QueryMessage,

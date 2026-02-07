@@ -1,3 +1,6 @@
+use std::io::Write;
+use std::net::SocketAddr;
+
 pub fn main() -> noargs::Result<()> {
     let mut args = noargs::raw_args();
 
@@ -23,36 +26,61 @@ pub fn main() -> noargs::Result<()> {
     Ok(())
 }
 
+fn send_response_ok<T: nojson::DisplayJson>(
+    socket: &mut rufton::LineFramedTcpSocket,
+    dst: SocketAddr,
+    request_id: &rufton::JsonRpcRequestId,
+    result: T,
+) -> std::io::Result<()> {
+    let id = nojson::Json(request_id);
+    let result = nojson::Json(result);
+    let mut buf = Vec::new();
+    write!(
+        &mut buf,
+        r#"{{"jsonrpc":"2.0","id":{id},"result":{result}}}"#,
+    )?;
+    socket.send_to(&buf, dst)?;
+    Ok(())
+}
+
+fn send_response_err(
+    socket: &mut rufton::LineFramedTcpSocket,
+    dst: SocketAddr,
+    request_id: Option<&rufton::JsonRpcRequestId>,
+    code: i32,
+    message: &str,
+) -> std::io::Result<()> {
+    let id = nojson::Json(request_id);
+    let mut buf = Vec::new();
+    write!(
+        &mut buf,
+        r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":{},"message":"{}"}}}}"#,
+        id,
+        code,
+        message
+    )?;
+    socket.send_to(&buf, dst)?;
+    Ok(())
+}
+
 fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let socket_addr: std::net::SocketAddr = listen_addr.parse()?;
-    let mut poll = mio::Poll::new()?;
-    let min_token = mio::Token(0);
-    let max_token = mio::Token(1024);
-
-    let mut server = rufton::JsonRpcServer::start(&mut poll, min_token, max_token, socket_addr)?;
+    let mut socket = rufton::LineFramedTcpSocket::bind(socket_addr)?;
     eprintln!("Echo server listening on {}", listen_addr);
 
-    let mut events = mio::Events::with_capacity(128);
-
+    let mut buf = [0u8; 65535];
     loop {
-        poll.poll(&mut events, None)?;
-
-        for event in events.iter() {
-            server.handle_mio_event(&mut poll, event)?;
-        }
-
-        while let Some((client_id, line)) = server.next_request_line() {
-            match rufton::JsonRpcRequest::parse(line) {
-                Err(e) => {
-                    server.reply_err(&mut poll, client_id, None, e.code(), e.message())?;
-                }
-                Ok(req) => {
-                    let Some(req_id) = req.id().cloned() else {
-                        continue;
-                    };
-                    let json = req.into_json().into_owned();
-                    server.reply_ok(&mut poll, client_id, &req_id, json)?;
-                }
+        let (len, src_addr) = socket.recv_from(&mut buf)?;
+        match rufton::JsonRpcRequest::parse(&buf[..len]) {
+            Err(e) => {
+                send_response_err(&mut socket, src_addr, None, e.code(), e.message())?;
+            }
+            Ok(req) => {
+                let Some(req_id) = req.id().cloned() else {
+                    continue;
+                };
+                let json = req.into_json().into_owned();
+                send_response_ok(&mut socket, src_addr, &req_id, json)?;
             }
         }
     }
