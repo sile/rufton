@@ -5,8 +5,9 @@ pub fn main() -> rufton::Result<()> {
         return Err(rufton::Error::new("missing PORT argument"));
     };
     let port: u16 = arg.parse()?;
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse()?;
 
-    let socket = rufton::LineFramedTcpSocket::bind(format!("127.0.0.1:{port}").parse()?)?;
+    let socket = rufton::LineFramedTcpSocket::bind(addr)?;
     run(socket)?;
 
     Ok(())
