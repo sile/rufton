@@ -65,24 +65,6 @@ fn send_response_ok<T: nojson::DisplayJson>(
     Ok(())
 }
 
-fn send_response_err(
-    socket: &UdpSocket,
-    dst: SocketAddr,
-    request_id: Option<&rufton::JsonRpcRequestId>,
-    code: i32,
-    message: &str,
-) -> std::io::Result<()> {
-    let id = nojson::Json(request_id);
-    let message = nojson::Json(message);
-    let mut buf = Vec::new();
-    write!(
-        &mut buf,
-        r#"{{"jsonrpc":"2.0","id":{id},"error":{{"code":{code},"message":{message}}}}}"#,
-    )?;
-    socket.send_to(&buf, dst)?;
-    Ok(())
-}
-
 fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> noargs::Result<()> {
     let socket = UdpSocket::bind(addr(node_id))?;
     eprintln!("Started node {}", node_id.get());
@@ -147,22 +129,16 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             Err(e) => return Err(e.into()),
         };
 
-        match rufton::JsonRpcRequest::parse(&buf[..len]) {
-            Err(e) => {
-                send_response_err(&socket, src_addr, None, e.code(), e.message())?;
-            }
-            Ok(req) => {
-                if let Some(req_id) = req.id().cloned() {
-                    assert_eq!(req.method(), "Command");
-                    let params = req.params().expect("bug");
-                    let proposal_id = node.propose_command(rufton::JsonLineValue::new(params));
-                    requests.insert(proposal_id, (src_addr, req_id));
-                } else {
-                    assert_eq!(req.method(), "Internal");
-                    let params = req.params().expect("bug");
-                    assert!(node.handle_message(&rufton::JsonLineValue::new(params)));
-                }
-            }
+        let req = rufton::JsonRpcRequest::parse(&buf[..len]).expect("should return err res");
+        if let Some(req_id) = req.id().cloned() {
+            assert_eq!(req.method(), "Command");
+            let params = req.params().expect("bug");
+            let proposal_id = node.propose_command(rufton::JsonLineValue::new(params));
+            requests.insert(proposal_id, (src_addr, req_id));
+        } else {
+            assert_eq!(req.method(), "Internal");
+            let params = req.params().expect("bug");
+            assert!(node.handle_message(&rufton::JsonLineValue::new(params)));
         }
 
         drain_actions(
