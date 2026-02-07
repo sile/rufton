@@ -384,18 +384,13 @@ impl LineFramedTcpSocket {
         };
 
         let prev_interest = conn.desired_interest();
-        let (need_reregister, add_pending, disconnected) = match conn.handle_mio_event(event) {
-            Ok(()) => {
-                let add_pending = event.is_readable() && conn.recv.has_pending();
-                let next_interest = conn.desired_interest();
-                let need_reregister = if next_interest != prev_interest {
-                    Some(next_interest)
-                } else {
-                    None
-                };
-                (need_reregister, add_pending, false)
-            }
-            Err(_) => (None, false, true),
+        let (need_reregister, add_pending, disconnected) = if conn.handle_mio_event(event).is_ok() {
+            let add_pending = event.is_readable() && conn.recv.has_pending();
+            let next_interest = conn.desired_interest();
+            let need_reregister = (next_interest != prev_interest).then_some(next_interest);
+            (need_reregister, add_pending, false)
+        } else {
+            (None, false, true)
         };
 
         if add_pending {
