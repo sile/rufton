@@ -38,3 +38,9 @@ impl From<std::io::Error> for Error {
         Self::new(err.to_string())
     }
 }
+
+impl From<nojson::JsonParseError> for Error {
+    fn from(err: nojson::JsonParseError) -> Self {
+        Self::new(err.to_string())
+    }
+}

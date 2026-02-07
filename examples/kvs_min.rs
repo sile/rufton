@@ -14,12 +14,12 @@ pub fn main() -> rufton::Result<()> {
     ]);
 
     let mut kvs = Kvs::new(noraft::NodeId::new(port as u64), init_node_ids)?;
-    let _ = kvs.run_loop();
+    kvs.run()?;
     Ok(())
 }
 
 fn addr(id: noraft::NodeId) -> SocketAddr {
-    ([127, 0, 0, 1], id.get() as u16).into()
+    SocketAddr::from(([127, 0, 0, 1], id.get() as u16))
 }
 
 struct Kvs {
@@ -27,7 +27,7 @@ struct Kvs {
     node: rufton::Node,
     machine: std::collections::HashMap<String, nojson::RawJsonOwned>,
     requests: std::collections::HashMap<rufton::ProposalId, (SocketAddr, rufton::JsonRpcRequestId)>,
-    buf: [u8; 65535],
+    buf: Vec<u8>,
 }
 
 impl Kvs {
@@ -36,11 +36,9 @@ impl Kvs {
         init_node_ids: Option<Vec<noraft::NodeId>>,
     ) -> rufton::Result<Self> {
         let socket = rufton::LineFramedTcpSocket::bind(addr(node_id))?;
-        eprintln!("Started node {}", node_id.get());
+        let machine = std::collections::HashMap::new();
 
         let mut node = rufton::Node::start(node_id);
-        let machine = std::collections::HashMap::<String, nojson::RawJsonOwned>::new();
-
         if let Some(members) = init_node_ids {
             node.init_cluster(&members);
         }
@@ -50,22 +48,17 @@ impl Kvs {
             node,
             machine,
             requests: std::collections::HashMap::new(), // TODO: use VecDeque
-            buf: [0u8; 65535],
+            buf: vec![0u8; 65535],
         })
     }
 
-    fn run_loop(&mut self) -> noargs::Result<()> {
+    fn run(&mut self) -> rufton::Result<()> {
         loop {
             while let Some(action) = self.node.next_action() {
                 self.handle_action(action)?;
             }
 
-            let (len, src_addr) = match self.socket.recv_from(&mut self.buf) {
-                Ok((len, src_addr)) => (len, src_addr),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-                Err(e) => return Err(e.into()),
-            };
-
+            let (len, src_addr) = self.socket.recv_from(&mut self.buf)?;
             let req =
                 rufton::JsonRpcRequest::parse(&self.buf[..len]).expect("should return err res");
             if let Some(req_id) = req.id().cloned() {
@@ -86,7 +79,7 @@ impl Kvs {
         }
     }
 
-    fn handle_action(&mut self, action: rufton::Action) -> noargs::Result<()> {
+    fn handle_action(&mut self, action: rufton::Action) -> rufton::Result<()> {
         match action {
             rufton::Action::BroadcastMessage(m) => {
                 let peers: Vec<_> = self.node.peers().collect();
