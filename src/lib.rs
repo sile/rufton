@@ -12,8 +12,7 @@ pub use crate::jsonrpc::{
     JsonRpcPredefinedError, JsonRpcRequest, JsonRpcRequestId, JsonRpcResponse,
 };
 pub use crate::node::{
-    Action, Command, JsonLineValue, Node, NodeStateMachine, ProposalId, QueryMessage,
-    RecentCommands, StorageEntry,
+    Action, Command, JsonLineValue, Node, ProposalId, QueryMessage, RecentCommands, StorageEntry,
 };
 pub use crate::storage::FileStorage;
 pub use crate::tcp::LineFramedTcpSocket;

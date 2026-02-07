@@ -1,18 +1,15 @@
 use crate::node_types::{
-    Action, Command, JsonLineValue, NodeStateMachine, ProposalId, QueryMessage, RecentCommands,
-    StorageEntry,
+    Action, Command, JsonLineValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
 };
 
 #[derive(Debug, Clone)]
 pub struct Node {
     pub inner: noraft::Node,
-    pub machine: NodeStateMachine,
     pub action_queue: std::collections::VecDeque<Action>,
     pub recent_commands: RecentCommands,
     pub initialized: bool,
     pub local_command_seqno: u64,
     pub applied_index: noraft::LogIndex,
-    pub dirty_members: bool,
     pub pending_queries: std::collections::BTreeSet<(noraft::LogPosition, ProposalId)>,
 }
 
@@ -25,13 +22,11 @@ impl Node {
         action_queue.push_back(Action::AppendStorageEntry(value));
         Self {
             inner,
-            machine: NodeStateMachine::default(),
             action_queue,
             recent_commands: std::collections::BTreeMap::new(),
             initialized: false,
             local_command_seqno: 0,
             applied_index: noraft::LogIndex::ZERO,
-            dirty_members: false,
             pending_queries: std::collections::BTreeSet::new(),
         }
     }
@@ -41,20 +36,19 @@ impl Node {
     }
 
     pub fn members(&self) -> impl Iterator<Item = noraft::NodeId> {
-        // self.inner.config().unique_nodes()
-        self.machine.nodes.iter().copied()
+        self.inner.config().unique_nodes()
     }
 
-    pub fn init_cluster(&mut self) -> bool {
+    pub fn init_cluster(&mut self, members: &[noraft::NodeId]) -> bool {
         if self.initialized {
             return false;
         }
+        if !members.contains(&self.inner.id()) {
+            return false;
+        }
 
-        let initial_members = [self.inner.id()];
-        self.inner.create_cluster(&initial_members);
+        self.inner.create_cluster(members);
         self.initialized = true;
-
-        self.propose_add_node(self.inner.id());
 
         true
     }
@@ -202,63 +196,8 @@ impl Node {
         (leader != self.id()).then_some(leader)
     }
 
-    pub fn propose_add_node(&mut self, id: noraft::NodeId) -> ProposalId {
-        let proposal_id = self.next_proposal_id();
-        let command = Command::AddNode { proposal_id, id };
-        self.propose(command);
-        proposal_id
-    }
-
-    pub fn remove_node(&mut self, id: noraft::NodeId) -> ProposalId {
-        let proposal_id = self.next_proposal_id();
-        let command = Command::RemoveNode { proposal_id, id };
-        self.propose(command);
-        proposal_id
-    }
-
     pub(crate) fn push_action(&mut self, action: Action) {
         self.action_queue.push_back(action);
-    }
-
-    fn maybe_sync_raft_members(&mut self) {
-        if !self.dirty_members {
-            return;
-        }
-        if !self.inner.role().is_leader() {
-            return;
-        }
-        if self.inner.config().is_joint_consensus() {
-            return;
-        }
-
-        // Get current cluster config
-        let current_config = self.inner.config();
-        let current_voters: std::collections::BTreeSet<_> =
-            current_config.voters.iter().copied().collect();
-
-        // Get voters from state machine nodes
-        let machine_voters = &self.machine.nodes;
-
-        // Calculate differences
-        let nodes_to_add: Vec<_> = machine_voters
-            .iter()
-            .filter(|id| !current_voters.contains(id))
-            .copied()
-            .collect();
-        let nodes_to_remove: Vec<_> = current_voters
-            .iter()
-            .filter(|id| !machine_voters.contains(id))
-            .copied()
-            .collect();
-
-        // If there are changes, propose new configuration
-        if !nodes_to_add.is_empty() || !nodes_to_remove.is_empty() {
-            let new_config = current_config.to_joint_consensus(&nodes_to_add, &nodes_to_remove);
-            let pos = self.inner.propose_config(new_config);
-            assert_ne!(pos, noraft::LogPosition::INVALID);
-        }
-
-        self.dirty_members = false;
     }
 
     pub fn handle_timeout(&mut self) {
@@ -335,7 +274,6 @@ impl Node {
             return None;
         }
 
-        self.maybe_sync_raft_members();
         self.maybe_heartbeat_on_leader();
 
         let mut after_commit_actions = Vec::new();
@@ -404,14 +342,6 @@ impl Node {
             let proposal_id = command.get_optional_member("proposal_id").expect("bug");
 
             let command = match command.get_member::<String>("type").expect("bug").as_str() {
-                "AddNode" => {
-                    self.handle_add_node(&command).expect("bug");
-                    None
-                }
-                "RemoveNode" => {
-                    self.handle_remove_node(&command).expect("bug");
-                    None
-                }
                 "Apply" => Some(command),
                 "Query" => None,
                 ty => panic!("bug: {ty}"),
@@ -466,30 +396,4 @@ impl Node {
         }))
     }
 
-    fn handle_add_node(&mut self, command: &JsonLineValue) -> Result<(), nojson::JsonParseError> {
-        let id = noraft::NodeId::new(command.get_member("id")?);
-
-        if self.machine.nodes.contains(&id) {
-            return Ok(());
-        }
-
-        self.machine.nodes.insert(id);
-        self.dirty_members = true;
-
-        Ok(())
-    }
-
-    fn handle_remove_node(
-        &mut self,
-        command: &JsonLineValue,
-    ) -> Result<(), nojson::JsonParseError> {
-        let id = noraft::NodeId::new(command.get_member("id")?);
-
-        if !self.machine.nodes.remove(&id) {
-            return Ok(());
-        }
-
-        self.dirty_members = true;
-        Ok(())
-    }
 }

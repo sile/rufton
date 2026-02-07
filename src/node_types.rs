@@ -158,14 +158,6 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    AddNode {
-        proposal_id: ProposalId,
-        id: noraft::NodeId,
-    },
-    RemoveNode {
-        proposal_id: ProposalId,
-        id: noraft::NodeId,
-    },
     Apply {
         proposal_id: ProposalId,
         command: JsonLineValue,
@@ -176,16 +168,6 @@ pub enum Command {
 impl nojson::DisplayJson for Command {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
-            Command::AddNode { proposal_id, id } => f.object(|f| {
-                f.member("type", "AddNode")?; // TODO: add prefix to indicate internal messages
-                f.member("proposal_id", proposal_id)?;
-                f.member("id", id.get())
-            }),
-            Command::RemoveNode { proposal_id, id } => f.object(|f| {
-                f.member("type", "RemoveNode")?;
-                f.member("proposal_id", proposal_id)?;
-                f.member("id", id.get())
-            }),
             Command::Apply {
                 proposal_id,
                 command,
@@ -208,22 +190,6 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
             .required()?
             .to_unquoted_string_str()?;
         match ty.as_ref() {
-            "AddNode" => {
-                let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
-                let id = value.to_member("id")?.required()?.try_into()?;
-                Ok(Command::AddNode {
-                    proposal_id,
-                    id: noraft::NodeId::new(id),
-                })
-            }
-            "RemoveNode" => {
-                let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
-                let id = value.to_member("id")?.required()?.try_into()?;
-                Ok(Command::RemoveNode {
-                    proposal_id,
-                    id: noraft::NodeId::new(id),
-                })
-            }
             "Apply" => {
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 let command_json = value.to_member("command")?.required()?;
@@ -307,9 +273,4 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
             ty => Err(value.invalid(format!("unknown storage entry type: {ty}"))),
         }
     }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct NodeStateMachine {
-    pub nodes: std::collections::BTreeSet<noraft::NodeId>,
 }

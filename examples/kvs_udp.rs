@@ -73,14 +73,10 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     let entries = storage.load_entries()?;
     if entries.is_empty() {
         if let Some(contact) = contact_node {
-            let params = nojson::object(|f| {
-                f.member("type", "AddNode")?;
-                f.member("proposal_id", [0, 0, 0])?;
-                f.member("id", node_id.get())
-            });
-            send_request(&socket, addr(contact), "Internal", params)?;
+            let members = [node_id, contact];
+            node.init_cluster(&members);
         } else {
-            node.init_cluster();
+            node.init_cluster(&[node_id]);
         }
     } else {
         let (ok, snapshot) = node.load(&entries);

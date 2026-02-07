@@ -1,13 +1,10 @@
 use crate::node_core::Node;
-use crate::node_types::{Action, JsonLineValue, NodeStateMachine, RecentCommands, StorageEntry};
+use crate::node_types::{Action, JsonLineValue, RecentCommands, StorageEntry};
 
 impl Node {
     fn parse_snapshot_json(
         snapshot: &JsonLineValue,
-    ) -> Result<
-        (noraft::LogPosition, noraft::ClusterConfig, NodeStateMachine),
-        nojson::JsonParseError,
-    > {
+    ) -> Result<(noraft::LogPosition, noraft::ClusterConfig), nojson::JsonParseError> {
         let snapshot_json = snapshot.get();
 
         // Extract position
@@ -37,17 +34,7 @@ impl Node {
             config.new_voters.insert(noraft::NodeId::new(id));
         }
 
-        // Extract machine state
-        let machine_json = snapshot_json.to_member("machine")?.required()?;
-        let nodes_json = machine_json.to_member("nodes")?.required()?;
-        let mut machine = NodeStateMachine::default();
-
-        for node_id in nodes_json.to_array()? {
-            let id: u64 = node_id.try_into()?;
-            machine.nodes.insert(noraft::NodeId::new(id));
-        }
-
-        Ok((position, config, machine))
+        Ok((position, config))
     }
 
     pub fn load<'a>(
@@ -58,7 +45,6 @@ impl Node {
             current_term: noraft::Term,
             voted_for: Option<noraft::NodeId>,
             config: noraft::ClusterConfig,
-            machine: NodeStateMachine,
             log_entries: noraft::LogEntries,
             recent_commands: RecentCommands,
             applied_index: noraft::LogIndex,
@@ -130,7 +116,6 @@ impl Node {
             let mut current_term = noraft::Term::new(0);
             let mut voted_for = None;
             let mut config = noraft::ClusterConfig::new();
-            let mut machine = NodeStateMachine::default();
             let mut log_entries = noraft::LogEntries::new(noraft::LogPosition::ZERO);
             let mut recent_commands = std::collections::BTreeMap::new();
             let mut applied_index = noraft::LogIndex::ZERO;
@@ -150,10 +135,8 @@ impl Node {
 
                 match ty.as_ref() {
                     "InstallSnapshotRpc" => {
-                        let (position, snap_config, snap_machine) =
-                            Self::parse_snapshot_json(entry)?;
+                        let (position, snap_config) = Self::parse_snapshot_json(entry)?;
                         config = snap_config;
-                        machine = snap_machine;
                         log_entries = noraft::LogEntries::new(position);
                         recent_commands = std::collections::BTreeMap::new();
                         applied_index = position.index;
@@ -225,7 +208,6 @@ impl Node {
                 current_term,
                 voted_for,
                 config,
-                machine,
                 log_entries,
                 recent_commands,
                 applied_index,
@@ -249,11 +231,9 @@ impl Node {
             state.voted_for,
             log,
         );
-        self.machine = state.machine;
         self.recent_commands = state.recent_commands;
         self.applied_index = state.applied_index;
         self.initialized = !state.config.voters.is_empty() || !state.config.new_voters.is_empty();
-        self.dirty_members = false;
         self.pending_queries = std::collections::BTreeSet::new();
         self.local_command_seqno = 0;
 
@@ -305,16 +285,7 @@ impl Node {
                     )
                 }),
             )?;
-            f.member("user_machine", machine)?; // TODO: "user_machine" と "machine" の名前は改善する
-            f.member(
-                "machine",
-                nojson::object(|f| {
-                    f.member(
-                        "nodes",
-                        nojson::array(|f| f.elements(self.machine.nodes.iter().map(|n| n.get()))),
-                    )
-                }),
-            )?;
+            f.member("user_machine", machine)?; // TODO: "user_machine" の名前は改善する
             f.member(
                 "log_entries",
                 nojson::array(|f| {

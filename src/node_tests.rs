@@ -3,8 +3,9 @@ use crate::{Action, JsonLineValue, Node, StorageEntry};
 #[test]
 fn init_cluster() {
     let mut node = Node::start(node_id(0));
-    assert!(node.init_cluster());
-    assert!(!node.init_cluster());
+    let members = [node_id(0)];
+    assert!(node.init_cluster(&members));
+    assert!(!node.init_cluster(&members));
     assert_eq!(
         node.next_action(),
         Some(append_storage_entry_action(
@@ -26,11 +27,18 @@ fn init_cluster() {
         node.next_action(),
         Some(Action::AppendStorageEntry(_))
     ));
-    assert!(matches!(node.next_action(), Some(Action::Commit { .. })));
-    assert_eq!(node.next_action(), None);
+    while node.next_action().is_some() {}
 
-    assert_eq!(node.machine.nodes.len(), 1);
-    assert!(node.machine.nodes.contains(&node_id(0)));
+    let node_members: Vec<_> = node.members().collect();
+    assert_eq!(node_members, vec![node_id(0)]);
+}
+
+#[test]
+fn init_cluster_requires_self_member() {
+    let mut node = Node::start(node_id(0));
+    assert!(!node.init_cluster(&[node_id(1)]));
+    assert!(!node.initialized);
+    assert!(node.init_cluster(&[node_id(0), node_id(1)]));
 }
 
 #[test]
@@ -72,7 +80,7 @@ fn load_uses_last_generation() {
 #[test]
 fn create_snapshot_includes_node_state() {
     let mut node = Node::start(node_id(0));
-    assert!(node.init_cluster());
+    assert!(node.init_cluster(&[node_id(0)]));
     while node.next_action().is_some() {}
 
     let applied_index = node.applied_index;
@@ -114,31 +122,34 @@ fn create_snapshot_includes_node_state() {
 #[test]
 fn create_snapshot_includes_log_entries_suffix() {
     let mut node0 = Node::start(node_id(0));
-    let node1 = Node::start(node_id(1));
+    let mut node1 = Node::start(node_id(1));
 
-    assert!(node0.init_cluster());
-    while node0.next_action().is_some() {}
-
-    node0.propose_add_node(node1.id());
+    let members = [node_id(0), node_id(1)];
+    assert!(node0.init_cluster(&members));
+    assert!(node1.init_cluster(&members));
+    node0.handle_timeout();
 
     let mut nodes = [node0, node1];
     run_actions(&mut nodes);
 
-    assert!(nodes[0].inner.role().is_leader());
-    assert!(!nodes[1].inner.role().is_leader());
+    let leader_index = nodes
+        .iter()
+        .position(|node| node.inner.role().is_leader())
+        .expect("leader should exist");
+    let follower_index = 1 - leader_index;
 
     let command = JsonLineValue::new_internal("snapshot_test");
-    let _proposal_id = nodes[0].propose_command(command);
+    let _proposal_id = nodes[leader_index].propose_command(command);
 
-    while let Some(action) = nodes[0].next_action() {
+    while let Some(action) = nodes[leader_index].next_action() {
         if let Action::BroadcastMessage(m) = action {
-            assert!(nodes[1].handle_message(&m));
+            assert!(nodes[follower_index].handle_message(&m));
             break;
         }
     }
 
-    let applied_index = nodes[1].applied_index;
-    let snapshot = nodes[1]
+    let applied_index = nodes[follower_index].applied_index;
+    let snapshot = nodes[follower_index]
         .create_snapshot(applied_index, &"user")
         .expect("snapshot should be created");
 
@@ -164,72 +175,6 @@ fn create_snapshot_includes_log_entries_suffix() {
         count += 1;
     }
     assert_eq!(count, 1);
-}
-
-#[test]
-fn propose_add_node() {
-    let mut node = Node::start(node_id(0));
-    assert!(node.init_cluster());
-    while node.next_action().is_some() {}
-
-    let proposal_id = node.propose_add_node(node_id(1));
-
-    let mut found_commit = false;
-    while let Some(action) = node.next_action() {
-        if let Action::Commit {
-            proposal_id: commit_proposal_id,
-            ..
-        } = action
-            && commit_proposal_id == Some(proposal_id)
-        {
-            found_commit = true;
-            break;
-        }
-    }
-    assert!(found_commit, "Proposal should be committed");
-
-    while node.next_action().is_some() {}
-
-    assert_eq!(node.machine.nodes.len(), 2);
-    assert!(node.machine.nodes.contains(&node_id(1)));
-}
-
-#[test]
-fn propose_remove_node() {
-    let mut node0 = Node::start(node_id(0));
-    let node1 = Node::start(node_id(1));
-
-    assert!(node0.init_cluster());
-    while node0.next_action().is_some() {}
-
-    node0.propose_add_node(node1.id());
-
-    let mut nodes = [node0, node1];
-    run_actions(&mut nodes);
-
-    let proposal_id = nodes[0].remove_node(node_id(1));
-
-    let mut found_commit = false;
-    let actions = run_actions(&mut nodes);
-    for (node_id, action) in actions {
-        if node_id == nodes[0].id() {
-            if let Action::Commit {
-                proposal_id: commit_proposal_id,
-                ..
-            } = action
-                && commit_proposal_id == Some(proposal_id)
-            {
-                found_commit = true;
-                break;
-            }
-        }
-    }
-    assert!(found_commit, "Remove proposal should be committed");
-
-    assert_eq!(nodes[0].machine.nodes.len(), 1);
-    assert_eq!(nodes[1].machine.nodes.len(), 1);
-    assert!(nodes[0].machine.nodes.contains(&node_id(0)));
-    assert!(nodes[1].machine.nodes.contains(&node_id(0)));
 }
 
 fn run_actions(nodes: &mut [Node]) -> Vec<(noraft::NodeId, Action)> {
@@ -277,52 +222,54 @@ fn run_actions(nodes: &mut [Node]) -> Vec<(noraft::NodeId, Action)> {
 #[test]
 fn two_node_broadcast_message_handling() {
     let mut node0 = Node::start(node_id(0));
-    let node1 = Node::start(node_id(1));
+    let mut node1 = Node::start(node_id(1));
 
-    assert!(node0.init_cluster());
-    while node0.next_action().is_some() {}
-
-    node0.propose_add_node(node1.id());
+    let members = [node_id(0), node_id(1)];
+    assert!(node0.init_cluster(&members));
+    assert!(node1.init_cluster(&members));
+    node0.handle_timeout();
 
     let mut nodes = [node0, node1];
     run_actions(&mut nodes);
 
-    assert_eq!(nodes[0].machine.nodes.len(), 2);
-    assert_eq!(nodes[1].machine.nodes.len(), 2);
+    let members0: Vec<_> = nodes[0].members().collect();
+    let members1: Vec<_> = nodes[1].members().collect();
+    assert_eq!(members0, vec![node_id(0), node_id(1)]);
+    assert_eq!(members1, vec![node_id(0), node_id(1)]);
 }
 
 #[test]
 fn propose_command_to_non_leader_node() {
     let mut node0 = Node::start(node_id(0));
-    let node1 = Node::start(node_id(1));
+    let mut node1 = Node::start(node_id(1));
 
-    assert!(node0.init_cluster());
-    while node0.next_action().is_some() {}
-
-    node0.propose_add_node(node1.id());
+    let members = [node_id(0), node_id(1)];
+    assert!(node0.init_cluster(&members));
+    assert!(node1.init_cluster(&members));
+    node0.handle_timeout();
 
     let mut nodes = [node0, node1];
     run_actions(&mut nodes);
 
-    // node0 is the leader, node1 is a follower
-    assert!(nodes[0].inner.role().is_leader());
-    assert!(!nodes[1].inner.role().is_leader());
+    let leader_index = nodes
+        .iter()
+        .position(|node| node.inner.role().is_leader())
+        .expect("leader should exist");
+    let follower_index = 1 - leader_index;
 
-    // Try to propose a command to the non-leader (node1)
+    // Try to propose a command to the non-leader
     let command = JsonLineValue::new_internal("test_command");
-    let proposal_id = nodes[1].propose_command(command);
+    let proposal_id = nodes[follower_index].propose_command(command);
 
     let actions = run_actions(&mut nodes);
     // Check that actions contain a Commit with the matching proposal_id
     let found_commit = actions.iter().any(|(node_id, action)| {
         dbg!(node_id, action);
-        if let Action::Commit {
-            proposal_id: id, ..
-        } = action
+        if let Action::Commit { proposal_id: id, .. } = action
             && *id == Some(proposal_id)
         {
             dbg!(node_id, action);
-            *node_id == nodes[1].id()
+            *node_id == nodes[follower_index].id()
         } else {
             false
         }
@@ -336,29 +283,30 @@ fn propose_command_to_non_leader_node() {
 #[test]
 fn propose_query() {
     let mut node0 = Node::start(node_id(0));
-    let node1 = Node::start(node_id(1));
+    let mut node1 = Node::start(node_id(1));
 
-    assert!(node0.init_cluster());
-    while node0.next_action().is_some() {}
-
-    node0.propose_add_node(node1.id());
+    let members = [node_id(0), node_id(1)];
+    assert!(node0.init_cluster(&members));
+    assert!(node1.init_cluster(&members));
+    node0.handle_timeout();
 
     let mut nodes = [node0, node1];
     run_actions(&mut nodes);
 
-    // node0 is the leader, node1 is a follower
-    assert!(nodes[0].inner.role().is_leader());
-    assert!(!nodes[1].inner.role().is_leader());
+    let leader_index = nodes
+        .iter()
+        .position(|node| node.inner.role().is_leader())
+        .expect("leader should exist");
 
     // Propose a query on the leader
-    let query_proposal_id = nodes[0].propose_query();
+    let query_proposal_id = nodes[leader_index].propose_query();
 
     let actions = run_actions(&mut nodes);
 
     // Check that a Query action was generated with the matching proposal_id
     let found_query = actions.iter().any(|(node_id, action)| {
         if let Action::Query { proposal_id } = action {
-            *node_id == nodes[0].id() && *proposal_id == query_proposal_id
+            *node_id == nodes[leader_index].id() && *proposal_id == query_proposal_id
         } else {
             false
         }
@@ -372,29 +320,31 @@ fn propose_query() {
 #[test]
 fn propose_query_on_non_leader_node() {
     let mut node0 = Node::start(node_id(0));
-    let node1 = Node::start(node_id(1));
+    let mut node1 = Node::start(node_id(1));
 
-    assert!(node0.init_cluster());
-    while node0.next_action().is_some() {}
-
-    node0.propose_add_node(node1.id());
+    let members = [node_id(0), node_id(1)];
+    assert!(node0.init_cluster(&members));
+    assert!(node1.init_cluster(&members));
+    node0.handle_timeout();
 
     let mut nodes = [node0, node1];
     run_actions(&mut nodes);
 
-    // node0 is the leader, node1 is a follower
-    assert!(nodes[0].inner.role().is_leader());
-    assert!(!nodes[1].inner.role().is_leader());
+    let leader_index = nodes
+        .iter()
+        .position(|node| node.inner.role().is_leader())
+        .expect("leader should exist");
+    let follower_index = 1 - leader_index;
 
-    // Propose a query on the non-leader (node1)
-    let query_proposal_id = nodes[1].propose_query();
+    // Propose a query on the non-leader
+    let query_proposal_id = nodes[follower_index].propose_query();
 
     let actions = run_actions(&mut nodes);
 
     // Check that the query was redirected to the leader and eventually resolved
     let found_query = actions.iter().any(|(node_id, action)| {
         if let Action::Query { proposal_id } = action {
-            *node_id == nodes[1].id() && *proposal_id == query_proposal_id
+            *node_id == nodes[follower_index].id() && *proposal_id == query_proposal_id
         } else {
             false
         }
@@ -410,7 +360,7 @@ fn strip_memory_log() {
     let mut node0 = Node::start(node_id(0));
 
     // Create single node cluster
-    assert!(node0.init_cluster());
+    assert!(node0.init_cluster(&[node_id(0)]));
     while node0.next_action().is_some() {}
 
     // Propose and commit some commands
@@ -435,18 +385,8 @@ fn strip_memory_log() {
         remaining_commands.is_empty() || remaining_commands.iter().all(|idx| *idx > commit_index)
     );
 
-    // Add a new node and verify it can sync
-    let node1 = Node::start(node_id(1));
-    node0.propose_add_node(node1.id());
-
-    let mut nodes = [node0, node1];
-    run_actions(&mut nodes);
-
-    // Verify the new node synced and has the same cluster state
-    assert_eq!(nodes[0].machine.nodes.len(), 2);
-    assert_eq!(nodes[1].machine.nodes.len(), 2);
-    assert!(nodes[1].machine.nodes.contains(&node_id(0)));
-    assert!(nodes[1].machine.nodes.contains(&node_id(1)));
+    let node0_members: Vec<_> = node0.members().collect();
+    assert_eq!(node0_members, vec![node_id(0)]);
 }
 
 fn append_storage_entry_action(json: &str) -> Action {

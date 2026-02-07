@@ -94,7 +94,7 @@ mod tests {
 
         // Initialize a single node cluster and save entries
         let mut node = Node::start(noraft::NodeId::new(0));
-        assert!(node.init_cluster());
+        assert!(node.init_cluster(&[noraft::NodeId::new(0)]));
 
         // Collect storage entries from actions
         let mut entries = Vec::new();
