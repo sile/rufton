@@ -395,5 +395,4 @@ impl Node {
             crate::conv::fmt_log_entries(f, entries, &self.recent_commands)
         }))
     }
-
 }

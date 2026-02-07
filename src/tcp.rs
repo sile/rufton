@@ -448,7 +448,7 @@ impl LineFramedTcpSocket {
 
     fn get_or_connect(&mut self, dst: SocketAddr) -> std::io::Result<mio::Token> {
         if let Some(token) = self.addr_to_token.get(&dst).copied() {
-            if self.connections.get(&token).is_some() {
+            if self.connections.contains_key(&token) {
                 return Ok(token);
             }
             self.addr_to_token.remove(&dst);

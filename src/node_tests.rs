@@ -265,7 +265,9 @@ fn propose_command_to_non_leader_node() {
     // Check that actions contain a Commit with the matching proposal_id
     let found_commit = actions.iter().any(|(node_id, action)| {
         dbg!(node_id, action);
-        if let Action::Commit { proposal_id: id, .. } = action
+        if let Action::Commit {
+            proposal_id: id, ..
+        } = action
             && *id == Some(proposal_id)
         {
             dbg!(node_id, action);
