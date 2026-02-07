@@ -379,24 +379,23 @@ impl LineFramedTcpSocket {
         event: &mio::event::Event,
     ) -> std::io::Result<Option<Connection>> {
         let token = event.token();
-        let (need_reregister, add_pending, disconnected) = match self.connections.get_mut(&token) {
-            None => return Ok(None),
-            Some(conn) => {
-                let prev_interest = conn.desired_interest();
-                match conn.handle_mio_event(event) {
-                    Ok(()) => {
-                        let add_pending = event.is_readable() && conn.recv.has_pending();
-                        let next_interest = conn.desired_interest();
-                        let need_reregister = if next_interest != prev_interest {
-                            Some(next_interest)
-                        } else {
-                            None
-                        };
-                        (need_reregister, add_pending, false)
-                    }
-                    Err(_) => (None, false, true),
-                }
+        let Some(conn) = self.connections.get_mut(&token) else {
+            return Ok(None);
+        };
+
+        let prev_interest = conn.desired_interest();
+        let (need_reregister, add_pending, disconnected) = match conn.handle_mio_event(event) {
+            Ok(()) => {
+                let add_pending = event.is_readable() && conn.recv.has_pending();
+                let next_interest = conn.desired_interest();
+                let need_reregister = if next_interest != prev_interest {
+                    Some(next_interest)
+                } else {
+                    None
+                };
+                (need_reregister, add_pending, false)
             }
+            Err(_) => (None, false, true),
         };
 
         if add_pending {
