@@ -94,10 +94,6 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     let mut requests = std::collections::HashMap::new();
     let mut buf = [0u8; 65535];
     loop {
-        if timeout_time < std::time::Instant::now() {
-            node.handle_timeout();
-        }
-
         drain_actions(
             &socket,
             &mut storage,
@@ -106,6 +102,10 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             &mut requests,
             &mut timeout_time,
         )?;
+
+        if timeout_time < std::time::Instant::now() {
+            node.handle_timeout();
+        }
 
         let now = std::time::Instant::now();
         let timeout = if timeout_time <= now {
@@ -117,10 +117,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
 
         let (len, src_addr) = match socket.recv_from(&mut buf) {
             Ok((len, src_addr)) => (len, src_addr),
-            Err(e)
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 continue;
             }
             Err(e) => return Err(e.into()),
@@ -137,15 +134,6 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             let params = req.params().expect("bug");
             assert!(node.handle_message(&rufton::JsonLineValue::new(params)));
         }
-
-        drain_actions(
-            &socket,
-            &mut storage,
-            &mut node,
-            &mut machine,
-            &mut requests,
-            &mut timeout_time,
-        )?;
     }
 }
 

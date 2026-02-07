@@ -368,6 +368,7 @@ impl RaftNode {
     }
 
     fn process_inner_actions(&mut self, after_commit_actions: &mut Vec<Action>) {
+        // TODO: donto use acitons_mut() (direct fields hanlding instead)
         while let Some(inner_action) = self.inner.actions_mut().next() {
             match inner_action {
                 noraft::Action::SetElectionTimeout => self.handle_set_election_timeout(),
