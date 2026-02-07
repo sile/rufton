@@ -250,12 +250,11 @@ impl TokenPool {
     }
 
     fn release(&mut self, token: mio::Token) {
-        if let Some(i) = self.index(token) {
-            if self.used[i] {
+        if let Some(i) = self.index(token)
+            && self.used[i] {
                 self.used[i] = false;
                 self.used_count = self.used_count.saturating_sub(1);
             }
-        }
     }
 
     fn index(&self, token: mio::Token) -> Option<usize> {
@@ -404,13 +403,12 @@ impl LineFramedTcpSocket {
             self.pending.push(token);
         }
 
-        if let Some(interest) = need_reregister {
-            if let Some(conn) = self.connections.get_mut(&token) {
+        if let Some(interest) = need_reregister
+            && let Some(conn) = self.connections.get_mut(&token) {
                 self.poll
                     .registry()
                     .reregister(&mut conn.stream, token, interest)?;
             }
-        }
 
         if disconnected {
             let mut conn = self.remove_connection(token).expect("just found");
@@ -448,10 +446,8 @@ impl LineFramedTcpSocket {
         for event in events {
             if event.token() == self.listener_token {
                 accept_pending = true;
-            } else {
-                if let Some(conn) = self.handle_connection_event(&event)? {
-                    self.addr_to_token.remove(&conn.id.addr);
-                }
+            } else if let Some(conn) = self.handle_connection_event(&event)? {
+                self.addr_to_token.remove(&conn.id.addr);
             }
         }
         if accept_pending {
@@ -515,7 +511,7 @@ impl LineFramedTcpSocket {
     }
 
     pub fn send_to(&mut self, buf: &[u8], dst: SocketAddr) -> std::io::Result<usize> {
-        if buf.iter().any(|b| *b == b'\n') {
+        if buf.contains(&b'\n') {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "payload must not contain newline",
@@ -568,14 +564,13 @@ impl LineFramedTcpSocket {
                 return Ok((n, peer.addr));
             }
 
-            if let Some(limit) = deadline {
-                if Instant::now() >= limit {
+            if let Some(limit) = deadline
+                && Instant::now() >= limit {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::WouldBlock,
                         "read timeout",
                     ));
                 }
-            }
         }
     }
 
