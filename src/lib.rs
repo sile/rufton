@@ -1,6 +1,7 @@
 mod node_core;
 mod node_persist;
 mod node_types;
+pub mod tcp;
 
 pub mod conv; // TODO: private
 pub mod jsonrpc;
@@ -16,6 +17,7 @@ pub use crate::node::{
     RecentCommands, StorageEntry,
 };
 pub use crate::storage::FileStorage;
+pub use crate::tcp::TcpSocket;
 
 #[cfg(test)]
 mod node_tests;
