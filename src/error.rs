@@ -39,6 +39,18 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<std::net::AddrParseError> for Error {
+    fn from(err: std::net::AddrParseError) -> Self {
+        Self::new(err.to_string())
+    }
+}
+
+impl From<std::str::Utf8Error> for Error {
+    fn from(err: std::str::Utf8Error) -> Self {
+        Self::new(err.to_string())
+    }
+}
+
 impl From<nojson::JsonParseError> for Error {
     fn from(err: nojson::JsonParseError) -> Self {
         Self::new(err.to_string())
