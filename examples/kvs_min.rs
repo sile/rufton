@@ -96,8 +96,9 @@ impl Kvs {
 
                 if let Some(command) = command {
                     let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
-                    let ty = v.to_member("type")?.required()?.as_string_str()?;
-                    let result = apply(&mut self.machine, ty, v)?;
+                    let method: &str = v.to_member("method")?.required()?.try_into()?;
+                    let params = v.to_member("params")?.required()?;
+                    let result = apply(&mut self.machine, method, params)?;
                     if let Some((addr, id)) = proposal_id.and_then(|id| self.requests.remove(&id)) {
                         let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
                         self.socket.send_to(res.as_bytes(), addr)?;
