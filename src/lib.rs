@@ -17,7 +17,7 @@ pub use crate::node::{
     RecentCommands, StorageEntry,
 };
 pub use crate::storage::FileStorage;
-pub use crate::tcp::TcpSocket;
+pub use crate::tcp::LineFramedTcpSocket;
 
 #[cfg(test)]
 mod node_tests;

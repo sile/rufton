@@ -400,7 +400,7 @@ struct PeerId {
 }
 
 #[derive(Debug)]
-struct TcpSocketInner {
+pub struct LineFramedTcpSocket {
     poll: mio::Poll,
     events: mio::Events,
     listener: mio::net::TcpListener,
@@ -411,7 +411,7 @@ struct TcpSocketInner {
     read_timeout: Option<Duration>,
 }
 
-impl TcpSocketInner {
+impl LineFramedTcpSocket {
     fn next_peer_id(&mut self, token: mio::Token, addr: SocketAddr) -> PeerId {
         let seqno = self.next_peer_seqno;
         self.next_peer_seqno += 1;
@@ -432,7 +432,8 @@ impl TcpSocketInner {
                         id.token,
                         mio::Interest::READABLE,
                     )?;
-                    self.core.insert(id.token, Connection::new_connected(id, stream));
+                    self.core
+                        .insert(id.token, Connection::new_connected(id, stream));
                     self.addr_to_token.entry(addr).or_insert(id.token);
                 }
             }
@@ -457,7 +458,6 @@ impl TcpSocketInner {
         }
         Ok(())
     }
-
     fn get_or_connect(&mut self, dst: SocketAddr) -> std::io::Result<mio::Token> {
         if let Some(token) = self.addr_to_token.get(&dst).copied() {
             if self.core.get(token).is_some() {
@@ -486,12 +486,7 @@ impl TcpSocketInner {
     }
 }
 
-#[derive(Debug)]
-pub struct TcpSocket {
-    inner: TcpSocketInner,
-}
-
-impl TcpSocket {
+impl LineFramedTcpSocket {
     pub fn bind(addr: SocketAddr) -> std::io::Result<Self> {
         let mut poll = mio::Poll::new()?;
         let mut listener = mio::net::TcpListener::bind(addr)?;
@@ -504,16 +499,14 @@ impl TcpSocket {
         )?;
 
         Ok(Self {
-            inner: TcpSocketInner {
-                poll,
-                events: mio::Events::with_capacity(128),
-                listener,
-                listener_token: LISTENER_TOKEN,
-                core,
-                addr_to_token: std::collections::HashMap::new(),
-                next_peer_seqno: 0,
-                read_timeout: None,
-            },
+            poll,
+            events: mio::Events::with_capacity(128),
+            listener,
+            listener_token: LISTENER_TOKEN,
+            core,
+            addr_to_token: std::collections::HashMap::new(),
+            next_peer_seqno: 0,
+            read_timeout: None,
         })
     }
 
@@ -525,10 +518,10 @@ impl TcpSocket {
             ));
         }
 
-        let token = self.inner.get_or_connect(dst)?;
+        let token = self.get_or_connect(dst)?;
 
         {
-            let conn = self.inner.core.get_mut(token).expect("just inserted");
+            let conn = self.core.get_mut(token).expect("just inserted");
             let should_reregister = conn.enqueue_and_flush(|out| {
                 out.extend_from_slice(buf);
                 out.push(b'\n');
@@ -536,7 +529,7 @@ impl TcpSocket {
             })?;
             if should_reregister {
                 reregister_interest(
-                    &mut self.inner.poll,
+                    &mut self.poll,
                     &mut conn.stream,
                     conn.id.token,
                     mio::Interest::READABLE | mio::Interest::WRITABLE,
@@ -544,18 +537,18 @@ impl TcpSocket {
             }
         }
 
-        let _ = self.inner.pump_io(Some(Duration::from_millis(0)));
+        let _ = self.pump_io(Some(Duration::from_millis(0)));
         Ok(buf.len())
     }
 
     pub fn recv_from(&mut self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
-        if let Some((peer, line)) = self.inner.core.next_line() {
+        if let Some((peer, line)) = self.core.next_line() {
             let n = line.len().min(buf.len());
             buf[..n].copy_from_slice(&line[..n]);
             return Ok((n, peer.addr));
         }
 
-        let deadline = self.inner.read_timeout.map(|d| Instant::now() + d);
+        let deadline = self.read_timeout.map(|d| Instant::now() + d);
         loop {
             let timeout = deadline.map(|limit| {
                 let now = Instant::now();
@@ -566,9 +559,9 @@ impl TcpSocket {
                 }
             });
 
-            self.inner.pump_io(timeout)?;
+            self.pump_io(timeout)?;
 
-            if let Some((peer, line)) = self.inner.core.next_line() {
+            if let Some((peer, line)) = self.core.next_line() {
                 let n = line.len().min(buf.len());
                 buf[..n].copy_from_slice(&line[..n]);
                 return Ok((n, peer.addr));
@@ -586,7 +579,7 @@ impl TcpSocket {
     }
 
     pub fn set_read_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()> {
-        self.inner.read_timeout = dur;
+        self.read_timeout = dur;
         Ok(())
     }
 }
