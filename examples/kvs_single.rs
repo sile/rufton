@@ -5,15 +5,12 @@ pub fn main() -> rufton::Result<()> {
         return Err(rufton::Error::new("missing PORT argument"));
     };
     let port: u16 = arg.parse()?;
-    let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse()?;
 
-    let socket = rufton::LineFramedTcpSocket::bind(addr)?;
-    run(socket)?;
-
-    Ok(())
+    run(format!("127.0.0.1:{port}").parse()?)
 }
 
-fn run(mut socket: rufton::LineFramedTcpSocket) -> rufton::Result<()> {
+fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
+    let mut socket = rufton::LineFramedTcpSocket::bind(addr)?;
     let mut buf = [0; 65535];
     let mut machine = KvsMachine::new();
 
