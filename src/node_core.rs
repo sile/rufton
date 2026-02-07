@@ -4,12 +4,6 @@ use crate::node_types::{
 };
 
 #[derive(Debug, Clone)]
-enum Pending {
-    Command(JsonLineValue),
-    Query(ProposalId),
-}
-
-#[derive(Debug, Clone)]
 pub struct Node {
     pub inner: noraft::Node,
     pub machine: NodeStateMachine,
@@ -20,7 +14,6 @@ pub struct Node {
     pub applied_index: noraft::LogIndex,
     pub dirty_members: bool,
     pub pending_queries: std::collections::BTreeSet<(noraft::LogPosition, ProposalId)>,
-    pending_proposals: Vec<Pending>,
 }
 
 impl Node {
@@ -40,7 +33,6 @@ impl Node {
             applied_index: noraft::LogIndex::ZERO,
             dirty_members: false,
             pending_queries: std::collections::BTreeSet::new(),
-            pending_proposals: Vec::new(),
         }
     }
 
@@ -117,7 +109,7 @@ impl Node {
             if let Some(maybe_leader) = self.leader_id() {
                 self.push_action(Action::SendMessage(maybe_leader, command));
             } else {
-                self.pending_proposals.push(Pending::Command(command));
+                // TODO: add missing proposal event
             }
             return;
         }
@@ -174,7 +166,7 @@ impl Node {
             let message = JsonLineValue::new_internal(query_message);
             self.push_action(Action::SendMessage(maybe_leader_id, message));
         } else {
-            self.pending_proposals.push(Pending::Query(proposal_id));
+            // TODO: add missing proposal event
         }
     }
 
@@ -226,10 +218,6 @@ impl Node {
 
     pub(crate) fn push_action(&mut self, action: Action) {
         self.action_queue.push_back(action);
-    }
-
-    pub(crate) fn clear_pending_proposals(&mut self) {
-        self.pending_proposals.clear();
     }
 
     fn maybe_sync_raft_members(&mut self) {
@@ -402,16 +390,6 @@ impl Node {
 
     fn handle_set_election_timeout(&mut self) {
         let role = self.inner.role();
-        let pending = std::mem::take(&mut self.pending_proposals);
-        if role.is_leader() {
-            for p in pending {
-                match p {
-                    Pending::Command(command) => self.propose_command_value(command),
-                    Pending::Query(id) => self.propose_query_inner(id),
-                }
-            }
-        }
-
         self.push_action(Action::SetTimeout(role));
     }
 

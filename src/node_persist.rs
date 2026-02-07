@@ -259,7 +259,6 @@ impl Node {
         self.initialized = !state.config.voters.is_empty() || !state.config.new_voters.is_empty();
         self.dirty_members = false;
         self.pending_queries = std::collections::BTreeSet::new();
-        self.clear_pending_proposals();
         self.local_command_seqno = 0;
 
         let entry = StorageEntry::NodeGeneration(new_generation);
