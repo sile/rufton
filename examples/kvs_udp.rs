@@ -3,14 +3,11 @@ use std::net::{SocketAddr, UdpSocket};
 
 pub fn main() -> noargs::Result<()> {
     let mut args = noargs::raw_args();
-    args.metadata_mut().app_name = "kvs_udp";
-    args.metadata_mut().app_description = "KVS UDP example";
-
     noargs::HELP_FLAG.take_help(&mut args);
 
     let port: u16 = noargs::opt("port")
         .short('p')
-        .default("9000")
+        .example("9000")
         .take(&mut args)
         .then(|a| a.value().parse())?;
     let contact_node = noargs::opt("contact")
@@ -48,7 +45,7 @@ fn send_request<T: nojson::DisplayJson>(
     Ok(())
 }
 
-fn send_response_ok<T: nojson::DisplayJson>(
+fn send_response<T: nojson::DisplayJson>(
     socket: &UdpSocket,
     dst: SocketAddr,
     request_id: &rufton::JsonRpcRequestId,
@@ -210,24 +207,22 @@ fn drain_actions(
                     if let Some((client_addr, req_id)) =
                         proposal_id.and_then(|id| requests.remove(&id))
                     {
-                        send_response_ok(socket, client_addr, &req_id, result)?;
+                        send_response(socket, client_addr, &req_id, result)?;
                     }
                 }
             }
-            rufton::Action::Query { .. } => unreachable!(),
+            rufton::Action::Query { .. } => unreachable!(), // TODO: Merge with Commit (and rename to Apply)
+                                                            // TODO: Add NotifyEvent
         }
     }
     Ok(())
 }
 
 fn next_timeout_time(role: noraft::Role) -> std::time::Instant {
-    let timeout_duration = if role.is_leader() {
-        // Leader sends heartbeats frequently
-        std::time::Duration::from_millis(50)
-    } else {
-        // Follower/Candidate wait longer for election timeout
-        // TODO: Add random jitter if candidate
-        std::time::Duration::from_millis(150)
+    let ms = match role {
+        noraft::Role::Leader => 50,
+        noraft::Role::Follower => 150,
+        noraft::Role::Candidate => 150 + rand::random::<u64>() % 50,
     };
-    std::time::Instant::now() + timeout_duration
+    std::time::Instant::now() + std::time::Duration::from_millis(ms)
 }
