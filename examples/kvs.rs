@@ -3,27 +3,30 @@ use std::net::SocketAddr;
 
 pub fn main() -> noargs::Result<()> {
     let mut args = noargs::raw_args();
-    args.metadata_mut().app_name = "kvs";
-    args.metadata_mut().app_description = "KVS example";
-
     noargs::HELP_FLAG.take_help(&mut args);
 
     let port: u16 = noargs::opt("port")
         .short('p')
-        .default("9000")
+        .example("9000")
         .take(&mut args)
         .then(|a| a.value().parse())?;
-    let contact_node = noargs::opt("contact")
-        .short('c')
+    let init_node_ids: Option<Vec<noraft::NodeId>> = noargs::opt("init")
         .take(&mut args)
-        .present_and_then(|a| a.value().parse().map(noraft::NodeId::new))?;
+        .present_and_then(|a| -> Result<_, nojson::JsonParseError> {
+            let ids: nojson::Json<Vec<_>> = a.value().parse()?;
+            Ok(ids
+                .0
+                .into_iter()
+                .map(noraft::NodeId::new)
+                .collect::<Vec<_>>())
+        })?;
 
     if let Some(help) = args.finish()? {
         print!("{help}");
         return Ok(());
     }
 
-    run_node(noraft::NodeId::new(port as u64), contact_node)?;
+    run_node(noraft::NodeId::new(port as u64), init_node_ids)?;
     Ok(())
 }
 
@@ -65,7 +68,10 @@ fn send_response<T: nojson::DisplayJson>(
     Ok(())
 }
 
-fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> noargs::Result<()> {
+fn run_node(
+    node_id: noraft::NodeId,
+    init_node_ids: Option<Vec<noraft::NodeId>>,
+) -> noargs::Result<()> {
     let mut socket = rufton::LineFramedTcpSocket::bind(addr(node_id))?;
     eprintln!("Started node {}", node_id.get());
 
@@ -75,8 +81,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     let mut storage = rufton::FileStorage::open(format!("/tmp/kvs-{}.jsonl", node_id.get()))?;
     let entries = storage.load_entries()?;
     if entries.is_empty() {
-        if let Some(contact) = contact_node {
-            let members = [node_id, contact];
+        if let Some(members) = init_node_ids {
             node.init_cluster(&members);
         } else {
             node.init_cluster(&[node_id]);
