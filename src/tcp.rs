@@ -555,3 +555,67 @@ impl LineFramedTcpSocket {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn token_pool_allocates_and_releases() {
+        let start = mio::Token(1);
+        let end = mio::Token(4);
+        let mut pool = TokenPool::new(start, end).expect("token pool");
+
+        let t1 = pool.allocate().expect("t1");
+        let t2 = pool.allocate().expect("t2");
+        let t3 = pool.allocate().expect("t3");
+        assert_ne!(t1, t2);
+        assert_ne!(t2, t3);
+        assert_ne!(t1, t3);
+
+        assert!(pool.allocate().is_err(), "pool should be exhausted");
+
+        pool.release(t2);
+        let t4 = pool.allocate().expect("t4");
+        assert_eq!(t2, t4, "released token should be reusable");
+    }
+
+    #[test]
+    fn line_buffer_extracts_lines_and_compacts() {
+        let mut buf = LineBuffer::new();
+        let data = b"hello\nworld\n";
+        buf.buf[..data.len()].copy_from_slice(data);
+        buf.offset = data.len();
+
+        let r1 = buf.next_line_range().expect("first line");
+        assert_eq!(buf.line_slice(r1.0, r1.1), b"hello");
+        let r2 = buf.next_line_range().expect("second line");
+        assert_eq!(buf.line_slice(r2.0, r2.1), b"world");
+
+        assert!(buf.next_line_range().is_none());
+        buf.compact_if_needed();
+        assert_eq!(buf.offset, 0);
+        assert!(!buf.has_pending());
+    }
+
+    #[test]
+    fn send_and_receive_single_line() {
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let mut receiver = LineFramedTcpSocket::bind(addr).expect("bind receiver");
+        let mut sender = LineFramedTcpSocket::bind(addr).expect("bind sender");
+
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set timeout");
+
+        let recv_addr = receiver.listener.local_addr().expect("local addr");
+        let payload = b"ping";
+        sender.send_to(payload, recv_addr).expect("send");
+
+        let mut out = [0_u8; 16];
+        let (n, peer) = receiver.recv_from(&mut out).expect("recv");
+        assert_eq!(&out[..n], payload);
+        assert!(peer.ip().is_loopback());
+    }
+}
