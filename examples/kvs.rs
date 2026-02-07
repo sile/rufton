@@ -76,14 +76,11 @@ fn run_node(
 
     let mut node = rufton::Node::start(node_id);
     let mut machine = std::collections::HashMap::<String, nojson::RawJsonOwned>::new();
-
     let mut storage = rufton::FileStorage::open(format!("/tmp/kvs-{}.jsonl", node_id.get()))?;
     let entries = storage.load_entries()?;
     if entries.is_empty() {
         if let Some(members) = init_node_ids {
             node.init_cluster(&members);
-        } else {
-            node.init_cluster(&[node_id]);
         }
     } else {
         let (ok, snapshot) = node.load(&entries);
@@ -94,7 +91,7 @@ fn run_node(
     }
 
     let mut timeout_time = next_timeout_time(noraft::Role::Follower);
-    let mut requests = std::collections::HashMap::new();
+    let mut requests = std::collections::HashMap::new(); // TODO: use VecDeque
     let mut buf = [0u8; 65535];
     loop {
         let now = std::time::Instant::now();
@@ -116,9 +113,7 @@ fn run_node(
 
         let (len, src_addr) = match socket.recv_from(&mut buf) {
             Ok((len, src_addr)) => (len, src_addr),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                continue;
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(e) => return Err(e.into()),
         };
 
