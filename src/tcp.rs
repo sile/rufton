@@ -488,7 +488,7 @@ impl TcpSocketInner {
 
 #[derive(Debug)]
 pub struct TcpSocket {
-    inner: std::sync::Mutex<TcpSocketInner>,
+    inner: TcpSocketInner,
 }
 
 impl TcpSocket {
@@ -504,7 +504,7 @@ impl TcpSocket {
         )?;
 
         Ok(Self {
-            inner: std::sync::Mutex::new(TcpSocketInner {
+            inner: TcpSocketInner {
                 poll,
                 events: mio::Events::with_capacity(128),
                 listener,
@@ -513,11 +513,11 @@ impl TcpSocket {
                 addr_to_token: std::collections::HashMap::new(),
                 next_peer_seqno: 0,
                 read_timeout: None,
-            }),
+            },
         })
     }
 
-    pub fn send_to(&self, buf: &[u8], dst: SocketAddr) -> std::io::Result<usize> {
+    pub fn send_to(&mut self, buf: &[u8], dst: SocketAddr) -> std::io::Result<usize> {
         if buf.iter().any(|b| *b == b'\n') {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -525,11 +525,10 @@ impl TcpSocket {
             ));
         }
 
-        let mut inner = self.inner.lock().expect("tcp socket mutex poisoned");
-        let token = inner.get_or_connect(dst)?;
+        let token = self.inner.get_or_connect(dst)?;
 
         {
-            let conn = inner.core.get_mut(token).expect("just inserted");
+            let conn = self.inner.core.get_mut(token).expect("just inserted");
             let should_reregister = conn.enqueue_and_flush(|out| {
                 out.extend_from_slice(buf);
                 out.push(b'\n');
@@ -537,7 +536,7 @@ impl TcpSocket {
             })?;
             if should_reregister {
                 reregister_interest(
-                    &mut inner.poll,
+                    &mut self.inner.poll,
                     &mut conn.stream,
                     conn.id.token,
                     mio::Interest::READABLE | mio::Interest::WRITABLE,
@@ -545,20 +544,18 @@ impl TcpSocket {
             }
         }
 
-        let _ = inner.pump_io(Some(Duration::from_millis(0)));
+        let _ = self.inner.pump_io(Some(Duration::from_millis(0)));
         Ok(buf.len())
     }
 
-    pub fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
-        let mut inner = self.inner.lock().expect("tcp socket mutex poisoned");
-
-        if let Some((peer, line)) = inner.core.next_line() {
+    pub fn recv_from(&mut self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+        if let Some((peer, line)) = self.inner.core.next_line() {
             let n = line.len().min(buf.len());
             buf[..n].copy_from_slice(&line[..n]);
             return Ok((n, peer.addr));
         }
 
-        let deadline = inner.read_timeout.map(|d| Instant::now() + d);
+        let deadline = self.inner.read_timeout.map(|d| Instant::now() + d);
         loop {
             let timeout = deadline.map(|limit| {
                 let now = Instant::now();
@@ -569,9 +566,9 @@ impl TcpSocket {
                 }
             });
 
-            inner.pump_io(timeout)?;
+            self.inner.pump_io(timeout)?;
 
-            if let Some((peer, line)) = inner.core.next_line() {
+            if let Some((peer, line)) = self.inner.core.next_line() {
                 let n = line.len().min(buf.len());
                 buf[..n].copy_from_slice(&line[..n]);
                 return Ok((n, peer.addr));
@@ -588,9 +585,8 @@ impl TcpSocket {
         }
     }
 
-    pub fn set_read_timeout(&self, dur: Option<Duration>) -> std::io::Result<()> {
-        let mut inner = self.inner.lock().expect("tcp socket mutex poisoned");
-        inner.read_timeout = dur;
+    pub fn set_read_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()> {
+        self.inner.read_timeout = dur;
         Ok(())
     }
 }
