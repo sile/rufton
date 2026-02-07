@@ -261,15 +261,9 @@ impl TokenPool {
 }
 
 #[derive(Debug)]
-enum ConnectionStorage {
-    Vec(Vec<Option<Connection>>),
-    Map(std::collections::HashMap<mio::Token, Connection>),
-}
-
-#[derive(Debug)]
 struct ConnectionCore {
     tokens: TokenPool,
-    connections: ConnectionStorage,
+    connections: std::collections::HashMap<mio::Token, Connection>,
     pending_lines: std::collections::BTreeSet<mio::Token>,
 }
 
@@ -284,7 +278,7 @@ impl ConnectionCore {
     fn new_map(start: mio::Token, end_exclusive: mio::Token) -> std::io::Result<Self> {
         Ok(Self {
             tokens: TokenPool::new(start, end_exclusive)?,
-            connections: ConnectionStorage::Map(std::collections::HashMap::new()),
+            connections: std::collections::HashMap::new(),
             pending_lines: std::collections::BTreeSet::new(),
         })
     }
@@ -294,35 +288,15 @@ impl ConnectionCore {
     }
 
     fn insert(&mut self, token: mio::Token, connection: Connection) {
-        match &mut self.connections {
-            ConnectionStorage::Vec(slots) => {
-                let i = self.tokens.index(token).expect("invalid token");
-                slots[i] = Some(connection);
-            }
-            ConnectionStorage::Map(connections) => {
-                connections.insert(token, connection);
-            }
-        }
+        self.connections.insert(token, connection);
     }
 
     fn get_mut(&mut self, token: mio::Token) -> Option<&mut Connection> {
-        match &mut self.connections {
-            ConnectionStorage::Vec(slots) => {
-                let i = self.tokens.index(token)?;
-                slots.get_mut(i)?.as_mut()
-            }
-            ConnectionStorage::Map(connections) => connections.get_mut(&token),
-        }
+        self.connections.get_mut(&token)
     }
 
     fn get(&self, token: mio::Token) -> Option<&Connection> {
-        match &self.connections {
-            ConnectionStorage::Vec(slots) => {
-                let i = self.tokens.index(token)?;
-                slots.get(i)?.as_ref()
-            }
-            ConnectionStorage::Map(connections) => connections.get(&token),
-        }
+        self.connections.get(&token)
     }
 
     fn handle_mio_event(
@@ -379,13 +353,7 @@ impl ConnectionCore {
     }
 
     fn remove(&mut self, token: mio::Token) -> Option<Connection> {
-        let conn = match &mut self.connections {
-            ConnectionStorage::Vec(slots) => {
-                let i = self.tokens.index(token)?;
-                slots.get_mut(i)?.take()
-            }
-            ConnectionStorage::Map(connections) => connections.remove(&token),
-        }?;
+        let conn = self.connections.remove(&token)?;
         self.pending_lines.remove(&token);
         self.tokens.release(token);
         Some(conn)
@@ -443,9 +411,10 @@ impl LineFramedTcpSocket {
 
     fn pump_io(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.poll.poll(&mut self.events, timeout)?;
+        let mut accept_pending = false;
         for event in self.events.iter() {
             if event.token() == self.listener_token {
-                self.accept_connections()?;
+                accept_pending = true;
             } else {
                 match self.core.handle_mio_event(&mut self.poll, event)? {
                     HandleEventResult::NotFound => {}
@@ -455,6 +424,9 @@ impl LineFramedTcpSocket {
                     }
                 }
             }
+        }
+        if accept_pending {
+            self.accept_connections()?;
         }
         Ok(())
     }
@@ -488,7 +460,7 @@ impl LineFramedTcpSocket {
 
 impl LineFramedTcpSocket {
     pub fn bind(addr: SocketAddr) -> std::io::Result<Self> {
-        let mut poll = mio::Poll::new()?;
+        let poll = mio::Poll::new()?;
         let mut listener = mio::net::TcpListener::bind(addr)?;
         poll.registry()
             .register(&mut listener, LISTENER_TOKEN, mio::Interest::READABLE)?;
