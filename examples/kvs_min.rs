@@ -124,20 +124,14 @@ impl Kvs {
         Ok(())
     }
 
-    fn send_request<T: nojson::DisplayJson>(
+    fn send_request(
         &mut self,
         dst: SocketAddr,
         method: &str,
-        params: T,
-    ) -> std::io::Result<()> {
-        let method = nojson::Json(method);
-        let params = nojson::Json(params);
-        let mut buf = Vec::new();
-        write!(
-            &mut buf,
-            r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#,
-        )?;
-        self.socket.send_to(&buf, dst)?;
+        params: &rufton::JsonLineValue,
+    ) -> rufton::Result<()> {
+        let req = format!(r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#);
+        self.socket.send_to(req.as_bytes(), dst)?;
         Ok(())
     }
 
