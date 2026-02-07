@@ -39,6 +39,10 @@ impl Node {
         self.inner.config().unique_nodes()
     }
 
+    pub fn peers(&self) -> impl Iterator<Item = noraft::NodeId> {
+        self.members().filter(|id| *id != self.id())
+    }
+
     pub fn init_cluster(&mut self, members: &[noraft::NodeId]) -> bool {
         if self.initialized {
             return false;

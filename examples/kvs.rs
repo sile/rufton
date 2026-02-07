@@ -153,10 +153,8 @@ fn drain_actions(
                 *timeout_time = next_timeout_time(role);
             }
             rufton::Action::BroadcastMessage(m) => {
-                for dst in node.members() {
-                    if dst != node.id() {
-                        send_request(socket, addr(dst), "Internal", &m)?;
-                    }
+                for dst in node.peers() {
+                    send_request(socket, addr(dst), "Internal", &m)?;
                 }
             }
             rufton::Action::SendMessage(dst, m) => {
