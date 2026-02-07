@@ -251,10 +251,11 @@ impl TokenPool {
 
     fn release(&mut self, token: mio::Token) {
         if let Some(i) = self.index(token)
-            && self.used[i] {
-                self.used[i] = false;
-                self.used_count = self.used_count.saturating_sub(1);
-            }
+            && self.used[i]
+        {
+            self.used[i] = false;
+            self.used_count = self.used_count.saturating_sub(1);
+        }
     }
 
     fn index(&self, token: mio::Token) -> Option<usize> {
@@ -378,37 +379,37 @@ impl LineFramedTcpSocket {
         event: &mio::event::Event,
     ) -> std::io::Result<Option<Connection>> {
         let token = event.token();
-        let (need_reregister, add_pending, disconnected) =
-            match self.connections.get_mut(&token) {
-                None => return Ok(None),
-                Some(conn) => {
-                    let prev_interest = conn.desired_interest();
-                    match conn.handle_mio_event(event) {
-                        Ok(()) => {
-                            let add_pending = event.is_readable() && conn.recv.has_pending();
-                            let next_interest = conn.desired_interest();
-                            let need_reregister = if next_interest != prev_interest {
-                                Some(next_interest)
-                            } else {
-                                None
-                            };
-                            (need_reregister, add_pending, false)
-                        }
-                        Err(_) => (None, false, true),
+        let (need_reregister, add_pending, disconnected) = match self.connections.get_mut(&token) {
+            None => return Ok(None),
+            Some(conn) => {
+                let prev_interest = conn.desired_interest();
+                match conn.handle_mio_event(event) {
+                    Ok(()) => {
+                        let add_pending = event.is_readable() && conn.recv.has_pending();
+                        let next_interest = conn.desired_interest();
+                        let need_reregister = if next_interest != prev_interest {
+                            Some(next_interest)
+                        } else {
+                            None
+                        };
+                        (need_reregister, add_pending, false)
                     }
+                    Err(_) => (None, false, true),
                 }
-            };
+            }
+        };
 
         if add_pending {
             self.pending.push(token);
         }
 
         if let Some(interest) = need_reregister
-            && let Some(conn) = self.connections.get_mut(&token) {
-                self.poll
-                    .registry()
-                    .reregister(&mut conn.stream, token, interest)?;
-            }
+            && let Some(conn) = self.connections.get_mut(&token)
+        {
+            self.poll
+                .registry()
+                .reregister(&mut conn.stream, token, interest)?;
+        }
 
         if disconnected {
             let mut conn = self.remove_connection(token).expect("just found");
@@ -422,16 +423,11 @@ impl LineFramedTcpSocket {
     fn next_line(&mut self) -> Option<(PeerId, &[u8])> {
         loop {
             let token = self.pending.peek()?;
-            let range = {
-                let conn = self.connections.get_mut(&token)?;
-                match conn.recv.next_line_range() {
-                    Some(range) => range,
-                    None => {
-                        conn.recv.compact_if_needed();
-                        self.pending.pop();
-                        continue;
-                    }
-                }
+            let conn = self.connections.get_mut(&token)?;
+            let Some(range) = conn.recv.next_line_range() else {
+                conn.recv.compact_if_needed();
+                self.pending.pop();
+                continue;
             };
             let conn = self.connections.get(&token)?;
             let line = conn.recv.line_slice(range.0, range.1);
@@ -530,7 +526,12 @@ impl LineFramedTcpSocket {
             })?;
             let next_interest = conn.desired_interest();
             if next_interest != prev_interest {
-                reregister_interest(&mut self.poll, &mut conn.stream, conn.id.token, next_interest)?;
+                reregister_interest(
+                    &mut self.poll,
+                    &mut conn.stream,
+                    conn.id.token,
+                    next_interest,
+                )?;
             }
         }
 
@@ -565,12 +566,13 @@ impl LineFramedTcpSocket {
             }
 
             if let Some(limit) = deadline
-                && Instant::now() >= limit {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::WouldBlock,
-                        "read timeout",
-                    ));
-                }
+                && Instant::now() >= limit
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "read timeout",
+                ));
+            }
         }
     }
 
