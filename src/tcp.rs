@@ -162,6 +162,16 @@ impl Connection {
         matches!(self.state, ConnectionState::Connected)
     }
 
+    fn desired_interest(&self) -> mio::Interest {
+        if !self.is_connected() {
+            mio::Interest::READABLE | mio::Interest::WRITABLE
+        } else if self.send.is_empty() {
+            mio::Interest::READABLE
+        } else {
+            mio::Interest::READABLE | mio::Interest::WRITABLE
+        }
+    }
+
     fn handle_mio_event(&mut self, event: &mio::event::Event) -> std::io::Result<()> {
         if !self.is_connected() && event.is_writable() {
             if let Some(err) = self.stream.take_error()? {
@@ -261,102 +271,44 @@ impl TokenPool {
 }
 
 #[derive(Debug)]
-struct ConnectionCore {
-    tokens: TokenPool,
-    connections: std::collections::HashMap<mio::Token, Connection>,
-    pending_lines: std::collections::BTreeSet<mio::Token>,
+struct PendingQueue {
+    queue: std::collections::VecDeque<mio::Token>,
+    set: std::collections::HashSet<mio::Token>,
 }
 
-#[derive(Debug)]
-enum HandleEventResult {
-    NotFound,
-    Handled,
-    Disconnected(Connection),
-}
-
-impl ConnectionCore {
-    fn new_map(start: mio::Token, end_exclusive: mio::Token) -> std::io::Result<Self> {
-        Ok(Self {
-            tokens: TokenPool::new(start, end_exclusive)?,
-            connections: std::collections::HashMap::new(),
-            pending_lines: std::collections::BTreeSet::new(),
-        })
-    }
-
-    fn allocate_token(&mut self) -> std::io::Result<mio::Token> {
-        self.tokens.allocate()
-    }
-
-    fn insert(&mut self, token: mio::Token, connection: Connection) {
-        self.connections.insert(token, connection);
-    }
-
-    fn get_mut(&mut self, token: mio::Token) -> Option<&mut Connection> {
-        self.connections.get_mut(&token)
-    }
-
-    fn get(&self, token: mio::Token) -> Option<&Connection> {
-        self.connections.get(&token)
-    }
-
-    fn handle_mio_event(
-        &mut self,
-        poll: &mut mio::Poll,
-        event: &mio::event::Event,
-    ) -> std::io::Result<HandleEventResult> {
-        let token = event.token();
-        let Some(conn) = self.get_mut(token) else {
-            return Ok(HandleEventResult::NotFound);
-        };
-
-        let was_empty = conn.send.is_empty();
-        if conn.handle_mio_event(event).is_ok() {
-            if was_empty != conn.send.is_empty() {
-                let interest = if conn.send.is_empty() {
-                    mio::Interest::READABLE
-                } else {
-                    mio::Interest::READABLE | mio::Interest::WRITABLE
-                };
-                poll.registry()
-                    .reregister(&mut conn.stream, token, interest)?;
-            }
-
-            if event.is_readable() && conn.recv.has_pending() {
-                self.pending_lines.insert(token);
-            }
-            return Ok(HandleEventResult::Handled);
+impl PendingQueue {
+    fn new() -> Self {
+        Self {
+            queue: std::collections::VecDeque::new(),
+            set: std::collections::HashSet::new(),
         }
-
-        let mut conn = self.remove(token).expect("just found");
-        poll.registry().deregister(&mut conn.stream)?;
-        Ok(HandleEventResult::Disconnected(conn))
     }
 
-    fn next_line(&mut self) -> Option<(PeerId, &[u8])> {
+    fn push(&mut self, token: mio::Token) {
+        if self.set.insert(token) {
+            self.queue.push_back(token);
+        }
+    }
+
+    fn peek(&mut self) -> Option<mio::Token> {
         loop {
-            let token = *self.pending_lines.first()?;
-            let range = {
-                let conn = self.get_mut(token)?;
-                match conn.recv.next_line_range() {
-                    Some(range) => range,
-                    None => {
-                        conn.recv.compact_if_needed();
-                        self.pending_lines.remove(&token);
-                        continue;
-                    }
-                }
-            };
-            let conn = self.get(token)?;
-            let line = conn.recv.line_slice(range.0, range.1);
-            return Some((conn.id, line));
+            let token = *self.queue.front()?;
+            if self.set.contains(&token) {
+                return Some(token);
+            }
+            self.queue.pop_front();
         }
     }
 
-    fn remove(&mut self, token: mio::Token) -> Option<Connection> {
-        let conn = self.connections.remove(&token)?;
-        self.pending_lines.remove(&token);
-        self.tokens.release(token);
-        Some(conn)
+    fn pop(&mut self) -> Option<mio::Token> {
+        let token = self.peek()?;
+        self.queue.pop_front();
+        self.set.remove(&token);
+        Some(token)
+    }
+
+    fn remove(&mut self, token: mio::Token) {
+        self.set.remove(&token);
     }
 }
 
@@ -373,7 +325,9 @@ pub struct LineFramedTcpSocket {
     events: mio::Events,
     listener: mio::net::TcpListener,
     listener_token: mio::Token,
-    core: ConnectionCore,
+    tokens: TokenPool,
+    connections: std::collections::HashMap<mio::Token, Connection>,
+    pending: PendingQueue,
     addr_to_token: std::collections::HashMap<SocketAddr, mio::Token>,
     next_peer_seqno: u64,
     read_timeout: Option<Duration>,
@@ -386,13 +340,24 @@ impl LineFramedTcpSocket {
         PeerId { seqno, token, addr }
     }
 
+    fn allocate_token(&mut self) -> std::io::Result<mio::Token> {
+        self.tokens.allocate()
+    }
+
+    fn remove_connection(&mut self, token: mio::Token) -> Option<Connection> {
+        let conn = self.connections.remove(&token)?;
+        self.pending.remove(token);
+        self.tokens.release(token);
+        Some(conn)
+    }
+
     fn accept_connections(&mut self) -> std::io::Result<()> {
         loop {
             match self.listener.accept() {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e),
                 Ok((mut stream, addr)) => {
-                    let token = self.core.allocate_token()?;
+                    let token = self.allocate_token()?;
                     let id = self.next_peer_id(token, addr);
                     stream.set_nodelay(true)?;
                     self.poll.registry().register(
@@ -400,7 +365,7 @@ impl LineFramedTcpSocket {
                         id.token,
                         mio::Interest::READABLE,
                     )?;
-                    self.core
+                    self.connections
                         .insert(id.token, Connection::new_connected(id, stream));
                     self.addr_to_token.entry(addr).or_insert(id.token);
                 }
@@ -409,19 +374,83 @@ impl LineFramedTcpSocket {
         Ok(())
     }
 
+    fn handle_connection_event(
+        &mut self,
+        event: &mio::event::Event,
+    ) -> std::io::Result<Option<Connection>> {
+        let token = event.token();
+        let (need_reregister, add_pending, disconnected) =
+            match self.connections.get_mut(&token) {
+                None => return Ok(None),
+                Some(conn) => {
+                    let prev_interest = conn.desired_interest();
+                    match conn.handle_mio_event(event) {
+                        Ok(()) => {
+                            let add_pending = event.is_readable() && conn.recv.has_pending();
+                            let next_interest = conn.desired_interest();
+                            let need_reregister = if next_interest != prev_interest {
+                                Some(next_interest)
+                            } else {
+                                None
+                            };
+                            (need_reregister, add_pending, false)
+                        }
+                        Err(_) => (None, false, true),
+                    }
+                }
+            };
+
+        if add_pending {
+            self.pending.push(token);
+        }
+
+        if let Some(interest) = need_reregister {
+            if let Some(conn) = self.connections.get_mut(&token) {
+                self.poll
+                    .registry()
+                    .reregister(&mut conn.stream, token, interest)?;
+            }
+        }
+
+        if disconnected {
+            let mut conn = self.remove_connection(token).expect("just found");
+            self.poll.registry().deregister(&mut conn.stream)?;
+            return Ok(Some(conn));
+        }
+
+        Ok(None)
+    }
+
+    fn next_line(&mut self) -> Option<(PeerId, &[u8])> {
+        loop {
+            let token = self.pending.peek()?;
+            let range = {
+                let conn = self.connections.get_mut(&token)?;
+                match conn.recv.next_line_range() {
+                    Some(range) => range,
+                    None => {
+                        conn.recv.compact_if_needed();
+                        self.pending.pop();
+                        continue;
+                    }
+                }
+            };
+            let conn = self.connections.get(&token)?;
+            let line = conn.recv.line_slice(range.0, range.1);
+            return Some((conn.id, line));
+        }
+    }
+
     fn pump_io(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.poll.poll(&mut self.events, timeout)?;
+        let events: Vec<mio::event::Event> = self.events.iter().cloned().collect();
         let mut accept_pending = false;
-        for event in self.events.iter() {
+        for event in events {
             if event.token() == self.listener_token {
                 accept_pending = true;
             } else {
-                match self.core.handle_mio_event(&mut self.poll, event)? {
-                    HandleEventResult::NotFound => {}
-                    HandleEventResult::Handled => {}
-                    HandleEventResult::Disconnected(conn) => {
-                        self.addr_to_token.remove(&conn.id.addr);
-                    }
+                if let Some(conn) = self.handle_connection_event(&event)? {
+                    self.addr_to_token.remove(&conn.id.addr);
                 }
             }
         }
@@ -430,16 +459,17 @@ impl LineFramedTcpSocket {
         }
         Ok(())
     }
+
     fn get_or_connect(&mut self, dst: SocketAddr) -> std::io::Result<mio::Token> {
         if let Some(token) = self.addr_to_token.get(&dst).copied() {
-            if self.core.get(token).is_some() {
+            if self.connections.get(&token).is_some() {
                 return Ok(token);
             }
             self.addr_to_token.remove(&dst);
         }
 
         let mut stream = mio::net::TcpStream::connect(dst)?;
-        let token = self.core.allocate_token()?;
+        let token = self.allocate_token()?;
         stream.set_nodelay(true)?;
         self.poll.registry().register(
             &mut stream,
@@ -451,7 +481,7 @@ impl LineFramedTcpSocket {
             token,
             addr: dst,
         };
-        self.core
+        self.connections
             .insert(token, Connection::new_connecting(peer_id, stream));
         self.addr_to_token.insert(dst, token);
         Ok(token)
@@ -465,7 +495,7 @@ impl LineFramedTcpSocket {
         poll.registry()
             .register(&mut listener, LISTENER_TOKEN, mio::Interest::READABLE)?;
 
-        let core = ConnectionCore::new_map(
+        let tokens = TokenPool::new(
             FIRST_CONNECTION_TOKEN,
             mio::Token(FIRST_CONNECTION_TOKEN.0 + MAX_CONNECTIONS),
         )?;
@@ -475,7 +505,9 @@ impl LineFramedTcpSocket {
             events: mio::Events::with_capacity(128),
             listener,
             listener_token: LISTENER_TOKEN,
-            core,
+            tokens,
+            connections: std::collections::HashMap::new(),
+            pending: PendingQueue::new(),
             addr_to_token: std::collections::HashMap::new(),
             next_peer_seqno: 0,
             read_timeout: None,
@@ -493,19 +525,16 @@ impl LineFramedTcpSocket {
         let token = self.get_or_connect(dst)?;
 
         {
-            let conn = self.core.get_mut(token).expect("just inserted");
-            let should_reregister = conn.enqueue_and_flush(|out| {
+            let conn = self.connections.get_mut(&token).expect("just inserted");
+            let prev_interest = conn.desired_interest();
+            conn.enqueue_and_flush(|out| {
                 out.extend_from_slice(buf);
                 out.push(b'\n');
                 Ok(())
             })?;
-            if should_reregister {
-                reregister_interest(
-                    &mut self.poll,
-                    &mut conn.stream,
-                    conn.id.token,
-                    mio::Interest::READABLE | mio::Interest::WRITABLE,
-                )?;
+            let next_interest = conn.desired_interest();
+            if next_interest != prev_interest {
+                reregister_interest(&mut self.poll, &mut conn.stream, conn.id.token, next_interest)?;
             }
         }
 
@@ -514,7 +543,7 @@ impl LineFramedTcpSocket {
     }
 
     pub fn recv_from(&mut self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
-        if let Some((peer, line)) = self.core.next_line() {
+        if let Some((peer, line)) = self.next_line() {
             let n = line.len().min(buf.len());
             buf[..n].copy_from_slice(&line[..n]);
             return Ok((n, peer.addr));
@@ -533,7 +562,7 @@ impl LineFramedTcpSocket {
 
             self.pump_io(timeout)?;
 
-            if let Some((peer, line)) = self.core.next_line() {
+            if let Some((peer, line)) = self.next_line() {
                 let n = line.len().min(buf.len());
                 buf[..n].copy_from_slice(&line[..n]);
                 return Ok((n, peer.addr));
@@ -579,6 +608,29 @@ mod tests {
         pool.release(t2);
         let t4 = pool.allocate().expect("t4");
         assert_eq!(t2, t4, "released token should be reusable");
+    }
+
+    #[test]
+    fn pending_queue_dedup_and_fifo() {
+        let mut pending = PendingQueue::new();
+        let t1 = mio::Token(1);
+        let t2 = mio::Token(2);
+
+        pending.push(t1);
+        pending.push(t2);
+        pending.push(t1);
+
+        assert_eq!(pending.peek(), Some(t1));
+        assert_eq!(pending.peek(), Some(t1));
+        assert_eq!(pending.pop(), Some(t1));
+        assert_eq!(pending.pop(), Some(t2));
+        assert_eq!(pending.pop(), None);
+
+        pending.push(t1);
+        pending.push(t2);
+        pending.remove(t1);
+        assert_eq!(pending.pop(), Some(t2));
+        assert_eq!(pending.pop(), None);
     }
 
     #[test]
