@@ -39,7 +39,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                     command: Some(command), // TDOO: remove
                     ..
                 } => {
-                    handle_command(&mut socket, &mut machine, proposal_id, command)?;
+                    handle_command(&mut socket, &mut machine, proposal_id.is_some(), command)?;
                 }
                 _ => todo!(),
             }
@@ -96,7 +96,7 @@ fn send_message(
 fn handle_command(
     socket: &mut rufton::LineFramedTcpSocket,
     machine: &mut KvsMachine,
-    proposal_id: Option<rufton::ProposalId>,
+    is_proposed: bool,
     command: rufton::JsonLineValue,
 ) -> rufton::Result<()> {
     let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
@@ -106,7 +106,7 @@ fn handle_command(
     let src: SocketAddr = v.to_member("src")?.required()?.try_into()?;
 
     let result = apply(machine, method, params)?;
-    if proposal_id.is_some() {
+    if is_proposed {
         let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
         socket.send_to(res.as_bytes(), src)?;
     }
