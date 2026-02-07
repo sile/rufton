@@ -1,3 +1,4 @@
+mod error;
 mod node_core;
 mod node_persist;
 mod node_types;
@@ -16,6 +17,9 @@ pub use crate::node::{
 };
 pub use crate::storage::FileStorage;
 pub use crate::tcp::LineFramedTcpSocket;
+pub use error::Error;
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 mod node_tests;
