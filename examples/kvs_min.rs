@@ -19,7 +19,6 @@ struct Kvs {
     socket: rufton::LineFramedTcpSocket,
     node: rufton::Node,
     machine: KvsMachine,
-    requests: std::collections::HashMap<rufton::ProposalId, (SocketAddr, u64)>,
 }
 
 impl Kvs {
@@ -39,7 +38,6 @@ impl Kvs {
             socket,
             node,
             machine,
-            requests: std::collections::HashMap::new(), // TODO: use VecDeque
         })
     }
 
@@ -64,10 +62,14 @@ impl Kvs {
                 self.node
                     .handle_message(&rufton::JsonLineValue::new(params));
             } else {
-                let proposal_id = self
-                    .node
-                    .propose_command(rufton::JsonLineValue::new(request));
-                self.requests.insert(proposal_id, (src_addr, id));
+                let command = nojson::object(|f| {
+                    f.member("method", method)?;
+                    f.member("params", params)?;
+                    f.member("id", id)?;
+                    f.member("src", src_addr)
+                });
+                self.node
+                    .propose_command(rufton::JsonLineValue::new(command));
             }
         }
     }
@@ -97,10 +99,13 @@ impl Kvs {
                     let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
                     let method: &str = v.to_member("method")?.required()?.try_into()?;
                     let params = v.to_member("params")?.required()?;
+                    let id: u64 = v.to_member("id")?.required()?.try_into()?;
+                    let src: SocketAddr = v.to_member("src")?.required()?.try_into()?;
+
                     let result = apply(&mut self.machine, method, params)?;
-                    if let Some((addr, id)) = proposal_id.and_then(|id| self.requests.remove(&id)) {
+                    if proposal_id.is_some() {
                         let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
-                        self.socket.send_to(res.as_bytes(), addr)?;
+                        self.socket.send_to(res.as_bytes(), src)?;
                     }
                 }
             }

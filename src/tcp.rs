@@ -454,7 +454,7 @@ impl LineFramedTcpSocket {
             self.addr_to_token.remove(&dst);
         }
 
-        let mut stream = mio::net::TcpStream::connect(dst)?;
+        let mut stream = mio::net::TcpStream::connect(dst)?; // TODO: ignore connect error
         let token = self.allocate_token()?;
         stream.set_nodelay(true)?;
         self.poll.registry().register(
