@@ -61,9 +61,9 @@ impl Kvs {
 
             let method: &str = request.to_member("method")?.required()?.try_into()?;
             let params = request.to_member("params")?.required()?;
-            let id: Option<u64> = request.to_member("id")?.try_into()?;
+            let id: u64 = request.to_member("id")?.required()?.try_into()?;
 
-            if method == "_internal" {
+            if method == "_message" {
                 // TODO: remove JsonLineValue
                 self.node
                     .handle_message(&rufton::JsonLineValue::new(params));
@@ -71,24 +71,22 @@ impl Kvs {
                 let proposal_id = self
                     .node
                     .propose_command(rufton::JsonLineValue::new(request));
-                if let Some(id) = id {
-                    self.requests.insert(proposal_id, (src_addr, id));
-                }
+                self.requests.insert(proposal_id, (src_addr, id));
             }
         }
     }
 
     fn handle_action(&mut self, action: rufton::Action) -> rufton::Result<()> {
         match action {
-            rufton::Action::BroadcastMessage(m) => {
-                let peers: Vec<_> = self.node.peers().collect();
-                for dst in peers {
-                    self.send_request(addr(dst), "_internal", &m)?;
+            rufton::Action::BroadcastMessage(msg) => {
+                let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
+                for dst in self.node.peers() {
+                    self.socket.send_to(req.as_bytes(), addr(dst))?;
                 }
             }
-            rufton::Action::SendMessage(dst, m) => {
-                // TODO: take snapshot if node.recent_commits().len() gets too long
-                self.send_request(addr(dst), "_internal", &m)?;
+            rufton::Action::SendMessage(dst, msg) => {
+                let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
+                self.socket.send_to(req.as_bytes(), addr(dst))?;
             }
             rufton::Action::Commit {
                 proposal_id,
@@ -110,17 +108,6 @@ impl Kvs {
             }
             _ => todo!(),
         }
-        Ok(())
-    }
-
-    fn send_request(
-        &mut self,
-        dst: SocketAddr,
-        method: &str,
-        params: &rufton::JsonLineValue,
-    ) -> rufton::Result<()> {
-        let req = format!(r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#);
-        self.socket.send_to(req.as_bytes(), dst)?;
         Ok(())
     }
 
