@@ -24,8 +24,7 @@ struct Kvs {
     socket: rufton::LineFramedTcpSocket,
     node: rufton::Node,
     machine: KvsMachine,
-    requests: std::collections::HashMap<rufton::ProposalId, (SocketAddr, rufton::JsonRpcRequestId)>,
-    buf: Vec<u8>,
+    requests: std::collections::HashMap<rufton::ProposalId, (SocketAddr, u64)>,
 }
 
 impl Kvs {
@@ -45,30 +44,36 @@ impl Kvs {
             node,
             machine,
             requests: std::collections::HashMap::new(), // TODO: use VecDeque
-            buf: vec![0u8; 65535],
         })
     }
 
     fn run(&mut self) -> rufton::Result<()> {
+        let mut buf = [0; 65535];
         loop {
             while let Some(action) = self.node.next_action() {
                 self.handle_action(action)?;
             }
 
-            let (len, src_addr) = self.socket.recv_from(&mut self.buf)?;
-            let req =
-                rufton::JsonRpcRequest::parse(&self.buf[..len]).expect("should return err res");
-            let params = req.params().expect("bug");
-            if req.method() == "Command" {
-                let proposal_id = self
-                    .node
-                    .propose_command(rufton::JsonLineValue::new(params));
-                if let Some(req_id) = req.id().cloned() {
-                    self.requests.insert(proposal_id, (src_addr, req_id));
-                }
-            } else {
+            let (len, src_addr) = self.socket.recv_from(&mut buf)?;
+            let text = str::from_utf8(&buf[..len])?; // TODO: note
+            let json = nojson::RawJson::parse(text)?;
+            let request = json.value();
+
+            let method: &str = request.to_member("method")?.required()?.try_into()?;
+            let params = request.to_member("params")?.required()?;
+            let id: Option<u64> = request.to_member("id")?.try_into()?;
+
+            if method == "_internal" {
+                // TODO: remove JsonLineValue
                 self.node
                     .handle_message(&rufton::JsonLineValue::new(params));
+            } else {
+                let proposal_id = self
+                    .node
+                    .propose_command(rufton::JsonLineValue::new(request));
+                if let Some(id) = id {
+                    self.requests.insert(proposal_id, (src_addr, id));
+                }
             }
         }
     }
@@ -78,12 +83,12 @@ impl Kvs {
             rufton::Action::BroadcastMessage(m) => {
                 let peers: Vec<_> = self.node.peers().collect();
                 for dst in peers {
-                    self.send_request(addr(dst), "_Message", &m)?;
+                    self.send_request(addr(dst), "_internal", &m)?;
                 }
             }
             rufton::Action::SendMessage(dst, m) => {
                 // TODO: take snapshot if node.recent_commits().len() gets too long
-                self.send_request(addr(dst), "_Message", &m)?;
+                self.send_request(addr(dst), "_internal", &m)?;
             }
             rufton::Action::Commit {
                 proposal_id,
@@ -99,7 +104,7 @@ impl Kvs {
                     if let Some((client_addr, req_id)) =
                         proposal_id.and_then(|id| self.requests.remove(&id))
                     {
-                        self.send_response(client_addr, &req_id, result)?;
+                        self.send_response(client_addr, req_id, result)?;
                     }
                 }
             }
@@ -122,7 +127,7 @@ impl Kvs {
     fn send_response<T: nojson::DisplayJson>(
         &mut self,
         dst: SocketAddr,
-        request_id: &rufton::JsonRpcRequestId,
+        request_id: u64,
         result: T,
     ) -> std::io::Result<()> {
         let id = nojson::Json(request_id);
