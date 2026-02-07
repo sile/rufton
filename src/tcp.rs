@@ -606,7 +606,7 @@ mod tests {
         let mut sender = LineFramedTcpSocket::bind(addr).expect("bind sender");
 
         receiver
-            .set_read_timeout(Some(Duration::from_secs(1)))
+            .set_read_timeout(Some(Duration::from_millis(50)))
             .expect("set timeout");
 
         let recv_addr = receiver.listener.local_addr().expect("local addr");
@@ -614,8 +614,25 @@ mod tests {
         sender.send_to(payload, recv_addr).expect("send");
 
         let mut out = [0_u8; 16];
-        let (n, peer) = receiver.recv_from(&mut out).expect("recv");
-        assert_eq!(&out[..n], payload);
-        assert!(peer.ip().is_loopback());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match receiver.recv_from(&mut out) {
+                Ok((n, peer)) => {
+                    assert_eq!(&out[..n], payload);
+                    assert!(peer.ip().is_loopback());
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    sender
+                        .pump_io(Some(Duration::from_millis(10)))
+                        .expect("pump sender");
+                }
+                Err(e) => panic!("recv: {e}"),
+            }
+
+            if Instant::now() >= deadline {
+                panic!("recv timed out");
+            }
+        }
     }
 }
