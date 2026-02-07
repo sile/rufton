@@ -61,20 +61,17 @@ impl Kvs {
             let (len, src_addr) = self.socket.recv_from(&mut self.buf)?;
             let req =
                 rufton::JsonRpcRequest::parse(&self.buf[..len]).expect("should return err res");
-            if let Some(req_id) = req.id().cloned() {
-                assert_eq!(req.method(), "Command");
-                let params = req.params().expect("bug");
+            let params = req.params().expect("bug");
+            if req.method() == "Command" {
                 let proposal_id = self
                     .node
                     .propose_command(rufton::JsonLineValue::new(params));
-                self.requests.insert(proposal_id, (src_addr, req_id));
+                if let Some(req_id) = req.id().cloned() {
+                    self.requests.insert(proposal_id, (src_addr, req_id));
+                }
             } else {
-                assert_eq!(req.method(), "Internal");
-                let params = req.params().expect("bug");
-                assert!(
-                    self.node
-                        .handle_message(&rufton::JsonLineValue::new(params))
-                );
+                self.node
+                    .handle_message(&rufton::JsonLineValue::new(params));
             }
         }
     }
@@ -84,12 +81,12 @@ impl Kvs {
             rufton::Action::BroadcastMessage(m) => {
                 let peers: Vec<_> = self.node.peers().collect();
                 for dst in peers {
-                    self.send_request(addr(dst), "Internal", &m)?;
+                    self.send_request(addr(dst), "_Message", &m)?;
                 }
             }
             rufton::Action::SendMessage(dst, m) => {
                 // TODO: take snapshot if node.recent_commits().len() gets too long
-                self.send_request(addr(dst), "Internal", &m)?;
+                self.send_request(addr(dst), "_Message", &m)?;
             }
             rufton::Action::Commit {
                 proposal_id,
