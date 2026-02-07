@@ -34,25 +34,16 @@ fn addr(id: noraft::NodeId) -> SocketAddr {
 fn send_request<T: nojson::DisplayJson>(
     socket: &UdpSocket,
     dst: SocketAddr,
-    id: Option<&rufton::JsonRpcRequestId>,
     method: &str,
     params: T,
 ) -> std::io::Result<()> {
     let method = nojson::Json(method);
     let params = nojson::Json(params);
     let mut buf = Vec::new();
-    if let Some(id) = id {
-        let id = nojson::Json(id);
-        write!(
-            &mut buf,
-            r#"{{"jsonrpc":"2.0","id":{id},"method":{method},"params":{params}}}"#,
-        )?;
-    } else {
-        write!(
-            &mut buf,
-            r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#,
-        )?;
-    }
+    write!(
+        &mut buf,
+        r#"{{"jsonrpc":"2.0","method":{method},"params":{params}}}"#,
+    )?;
     socket.send_to(&buf, dst)?;
     Ok(())
 }
@@ -108,7 +99,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 f.member("proposal_id", [0, 0, 0])?;
                 f.member("id", node_id.get())
             });
-            send_request(&socket, addr(contact), None, "Internal", params)?;
+            send_request(&socket, addr(contact), "Internal", params)?;
         } else {
             node.init_cluster();
         }
@@ -190,7 +181,10 @@ fn drain_actions(
     storage: &mut rufton::FileStorage,
     node: &mut rufton::RaftNode,
     machine: &mut std::collections::HashMap<String, nojson::RawJsonOwned>,
-    requests: &mut std::collections::HashMap<rufton::ProposalId, (SocketAddr, rufton::JsonRpcRequestId)>,
+    requests: &mut std::collections::HashMap<
+        rufton::ProposalId,
+        (SocketAddr, rufton::JsonRpcRequestId),
+    >,
     timeout_time: &mut std::time::Instant,
 ) -> noargs::Result<()> {
     while let Some(action) = node.next_action() {
@@ -206,12 +200,12 @@ fn drain_actions(
             rufton::Action::BroadcastMessage(m) => {
                 for dst in node.members() {
                     if dst != node.id() {
-                        send_request(socket, addr(dst), None, "Internal", &m)?;
+                        send_request(socket, addr(dst), "Internal", &m)?;
                     }
                 }
             }
             rufton::Action::SendMessage(dst, m) => {
-                send_request(socket, addr(dst), None, "Internal", &m)?;
+                send_request(socket, addr(dst), "Internal", &m)?;
             }
             rufton::Action::Commit {
                 proposal_id,
@@ -228,16 +222,12 @@ fn drain_actions(
                             let key = v.to_member("key")?.required()?.try_into()?;
                             let value = v.to_member("value")?.required()?.extract().into_owned();
                             let old = machine.insert(key, value);
-                            rufton::JsonLineValue::new(nojson::object(|f| {
-                                f.member("old", &old)
-                            }))
+                            rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
                         }
                         "get" => {
                             let key: String = v.to_member("key")?.required()?.try_into()?; // TODO: dont use String
                             let value = machine.get(&key);
-                            rufton::JsonLineValue::new(nojson::object(|f| {
-                                f.member("value", value)
-                            }))
+                            rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
                         }
                         _ => rufton::JsonLineValue::new("unknown type"),
                     };
