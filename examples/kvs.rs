@@ -38,7 +38,6 @@ struct Kvs {
     node: rufton::Node,
     machine: std::collections::HashMap<String, nojson::RawJsonOwned>,
     storage: rufton::FileStorage,
-    requests: std::collections::HashMap<rufton::ProposalId, (SocketAddr, rufton::JsonRpcRequestId)>,
     timeout_time: std::time::Instant,
     buf: [u8; 65535],
 }
@@ -72,7 +71,6 @@ impl Kvs {
             node,
             machine,
             storage,
-            requests: std::collections::HashMap::new(), // TODO: use VecDeque
             timeout_time: next_timeout_time(noraft::Role::Follower),
             buf: [0u8; 65535],
         })
@@ -103,10 +101,12 @@ impl Kvs {
             if let Some(req_id) = req.id().cloned() {
                 assert_eq!(req.method(), "Command");
                 let params = req.params().expect("bug");
-                let proposal_id = self
-                    .node
-                    .propose_command(rufton::JsonLineValue::new(params));
-                self.requests.insert(proposal_id, (src_addr, req_id));
+                let request = nojson::object(|f| {
+                    f.member("params", params)?;
+                    f.member("id", req_id.clone())?;
+                    f.member("src", src_addr)
+                });
+                self.node.propose_command(rufton::JsonLineValue::new(request));
             } else {
                 assert_eq!(req.method(), "Internal");
                 let params = req.params().expect("bug");
@@ -139,23 +139,28 @@ impl Kvs {
                 self.send_request(addr(dst), "Internal", &m)?;
             }
             rufton::Action::Apply {
-                proposal_id,
+                is_proposer,
                 index,
                 request,
             } => {
-                eprintln!("Apply: {} ({:?})", index.get(), proposal_id);
+                eprintln!("Apply: {} (is_proposer={})", index.get(), is_proposer);
                 let request_value = request.get();
-                let ty = request_value
+                let command_value = request
+                    .get()
+                    .to_member("params")
+                    .and_then(|value| value.required())
+                    .unwrap_or(request_value);
+                let ty = command_value
                     .to_member("type")?
                     .required()?
                     .as_string_str()?;
                 let result = match ty {
                     "put" => {
-                        let key = request_value
+                        let key = command_value
                             .to_member("key")?
                             .required()?
                             .try_into()?;
-                        let value = request_value
+                        let value = command_value
                             .to_member("value")?
                             .required()?
                             .extract()
@@ -164,7 +169,7 @@ impl Kvs {
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
                     }
                     "get" => {
-                        let key: String = request_value
+                        let key: String = command_value
                             .to_member("key")?
                             .required()?
                             .try_into()?; // TODO: dont use String
@@ -173,10 +178,11 @@ impl Kvs {
                     }
                     _ => rufton::JsonLineValue::new("unknown type"),
                 };
-                if let Some((client_addr, req_id)) =
-                    proposal_id.and_then(|id| self.requests.remove(&id))
-                {
-                    self.send_response(client_addr, &req_id, result)?;
+                if is_proposer {
+                    let req_id: rufton::JsonRpcRequestId =
+                        request_value.to_member("id")?.required()?.try_into()?;
+                    let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
+                    self.send_response(src, &req_id, result)?;
                 }
             }
             // TODO: Add NotifyEvent

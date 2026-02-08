@@ -1,6 +1,5 @@
 mod error;
 mod node_core;
-mod node_persist;
 mod node_types;
 pub mod tcp;
 
@@ -12,9 +11,7 @@ pub mod storage;
 pub use crate::jsonrpc::{
     JsonRpcPredefinedError, JsonRpcRequest, JsonRpcRequestId, JsonRpcResponse,
 };
-pub use crate::node::{
-    Action, Command, JsonLineValue, Node, ProposalId, QueryMessage, RecentCommands, StorageEntry,
-};
+pub use crate::node::{Action, JsonLineValue, Node, RecentCommands, StorageEntry};
 pub use crate::storage::FileStorage;
 pub use crate::tcp::LineFramedTcpSocket;
 pub use error::Error;

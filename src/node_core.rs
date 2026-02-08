@@ -1,16 +1,19 @@
+#[path = "node_persist.rs"]
+mod node_persist;
+
 use crate::node_types::{
-    Action, Command, JsonLineValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
+    Action, Command, JsonLineValue, QueryMessage, RecentCommands, ProposalId, StorageEntry,
 };
 
 #[derive(Debug, Clone)]
 pub struct Node {
-    pub inner: noraft::Node,
-    pub action_queue: std::collections::VecDeque<Action>,
-    pub recent_commands: RecentCommands,
-    pub initialized: bool,
-    pub local_command_seqno: u64,
-    pub applied_index: noraft::LogIndex,
-    pub pending_queries: std::collections::BTreeMap<
+    pub(crate) inner: noraft::Node,
+    pub(crate) action_queue: std::collections::VecDeque<Action>,
+    pub(crate) recent_commands: RecentCommands,
+    pub(crate) initialized: bool,
+    pub(crate) local_command_seqno: u64,
+    pub(crate) applied_index: noraft::LogIndex,
+    pub(crate) pending_queries: std::collections::BTreeMap<
         (noraft::LogPosition, ProposalId),
         JsonLineValue,
     >,
@@ -119,14 +122,13 @@ impl Node {
         self.recent_commands.insert(position.index, command);
     }
 
-    pub fn propose_command(&mut self, request: JsonLineValue) -> ProposalId {
+    pub fn propose_command(&mut self, request: JsonLineValue) {
         let proposal_id = self.next_proposal_id();
         let command = Command::Apply {
             proposal_id,
             command: request,
         };
         self.propose(command);
-        proposal_id
     }
 
     fn get_next_broadcast_position(&self) -> Option<noraft::LogPosition> {
@@ -151,10 +153,9 @@ impl Node {
         position
     }
 
-    pub fn propose_query(&mut self, request: JsonLineValue) -> ProposalId {
+    pub fn propose_query(&mut self, request: JsonLineValue) {
         let proposal_id = self.next_proposal_id();
         self.propose_query_inner(proposal_id, request);
-        proposal_id
     }
 
     fn propose_query_inner(&mut self, proposal_id: ProposalId, request: JsonLineValue) {
@@ -367,7 +368,12 @@ impl Node {
                 continue;
             };
 
-            let proposal_id = command.get_optional_member("proposal_id").expect("bug");
+            let proposal_id: Option<ProposalId> =
+                command.get_optional_member("proposal_id").expect("bug");
+            let is_proposer = proposal_id
+                .as_ref()
+                .map(|id| id.is_proposer(self.id(), self.inner.generation().get()))
+                .unwrap_or(false);
 
             let request = match command.get_member::<String>("type").expect("bug").as_str() {
                 "Apply" => {
@@ -383,8 +389,8 @@ impl Node {
             };
 
             self.push_action(Action::Apply {
+                is_proposer,
                 index,
-                proposal_id,
                 request,
             });
         }
@@ -420,7 +426,7 @@ impl Node {
                             .remove(&(position, proposal_id))
                             .expect("pending_queries should have entry");
                         self.push_action(Action::Apply {
-                            proposal_id: Some(proposal_id),
+                            is_proposer: true,
                             index: position.index,
                             request,
                         });

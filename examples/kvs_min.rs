@@ -33,12 +33,12 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                 rufton::Action::BroadcastMessage(msg) => broadcast_message(&mut sock, &node, msg)?,
                 rufton::Action::SendMessage(dst, msg) => send_message(&mut sock, dst, msg)?,
                 rufton::Action::Apply {
-                    proposal_id,
+                    is_proposer,
                     request,
                     ..
                 } => {
                     // TODO: call apply() here
-                    handle_command(&mut sock, &mut machine, proposal_id.is_some(), request)?;
+                    handle_command(&mut sock, &mut machine, is_proposer, request)?;
                 }
                 rufton::Action::SetTimeout(_) | rufton::Action::AppendStorageEntry(_) => {}
                 a => todo!("{a:?}"),
@@ -64,7 +64,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                 f.member("id", id)?;
                 f.member("src", src_addr)
             });
-            let _proposal_id = node.propose_command(rufton::JsonLineValue::new(command));
+            node.propose_command(rufton::JsonLineValue::new(command));
         }
     }
 }

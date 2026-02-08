@@ -1,7 +1,7 @@
 pub type RecentCommands = std::collections::BTreeMap<noraft::LogIndex, JsonLineValue>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ProposalId {
+pub(crate) struct ProposalId {
     node_id: noraft::NodeId,
     generation: u64,
     local_seqno: u64,
@@ -14,6 +14,10 @@ impl ProposalId {
             generation,
             local_seqno,
         }
+    }
+
+    pub(crate) fn is_proposer(&self, node_id: noraft::NodeId, generation: u64) -> bool {
+        self.node_id == node_id && self.generation == generation
     }
 }
 
@@ -92,7 +96,7 @@ impl std::fmt::Display for JsonLineValue {
 
 // TODO
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QueryMessage {
+pub(crate) enum QueryMessage {
     Redirect {
         from: noraft::NodeId,
         proposal_id: ProposalId,
@@ -172,7 +176,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
+pub(crate) enum Command {
     Apply {
         proposal_id: ProposalId,
         command: JsonLineValue,
@@ -229,7 +233,7 @@ pub enum Action {
     SendSnapshot(noraft::NodeId),
     // TODO: NotifyEvent
     Apply {
-        proposal_id: Option<ProposalId>,
+        is_proposer: bool,
         index: noraft::LogIndex,
         request: JsonLineValue,
     },

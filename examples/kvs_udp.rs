@@ -87,7 +87,6 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
     }
 
     let mut timeout_time = next_timeout_time(noraft::Role::Follower);
-    let mut requests = std::collections::HashMap::new();
     let mut buf = [0u8; 65535];
     loop {
         let now = std::time::Instant::now();
@@ -95,14 +94,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             node.handle_timeout();
         }
 
-        drain_actions(
-            &socket,
-            &mut storage,
-            &mut node,
-            &mut machine,
-            &mut requests,
-            &mut timeout_time,
-        )?;
+        drain_actions(&socket, &mut storage, &mut node, &mut machine, &mut timeout_time)?;
 
         let timeout = timeout_time.saturating_duration_since(now);
         socket.set_read_timeout(Some(timeout))?;
@@ -119,8 +111,12 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
         if let Some(req_id) = req.id().cloned() {
             assert_eq!(req.method(), "Command");
             let params = req.params().expect("bug");
-            let proposal_id = node.propose_command(rufton::JsonLineValue::new(params));
-            requests.insert(proposal_id, (src_addr, req_id));
+            let request = nojson::object(|f| {
+                f.member("params", params)?;
+                f.member("id", req_id.clone())?;
+                f.member("src", src_addr)
+            });
+            node.propose_command(rufton::JsonLineValue::new(request));
         } else {
             assert_eq!(req.method(), "Internal");
             let params = req.params().expect("bug");
@@ -134,10 +130,6 @@ fn drain_actions(
     storage: &mut rufton::FileStorage,
     node: &mut rufton::Node,
     machine: &mut std::collections::HashMap<String, nojson::RawJsonOwned>,
-    requests: &mut std::collections::HashMap<
-        rufton::ProposalId,
-        (SocketAddr, rufton::JsonRpcRequestId),
-    >,
     timeout_time: &mut std::time::Instant,
 ) -> noargs::Result<()> {
     while let Some(action) = node.next_action() {
@@ -161,24 +153,29 @@ fn drain_actions(
                 send_request(socket, addr(dst), "Internal", &m)?;
             }
             rufton::Action::Apply {
-                proposal_id,
+                is_proposer,
                 index,
                 request,
             } => {
-                eprintln!("Apply: {} ({:?})", index.get(), proposal_id);
+                eprintln!("Apply: {} (is_proposer={})", index.get(), is_proposer);
 
                 let request_value = request.get();
-                let ty = request_value
+                let command_value = request
+                    .get()
+                    .to_member("params")
+                    .and_then(|value| value.required())
+                    .unwrap_or(request_value);
+                let ty = command_value
                     .to_member("type")?
                     .required()?
                     .as_string_str()?;
                 let result = match ty {
                     "put" => {
-                        let key = request_value
+                        let key = command_value
                             .to_member("key")?
                             .required()?
                             .try_into()?;
-                        let value = request_value
+                        let value = command_value
                             .to_member("value")?
                             .required()?
                             .extract()
@@ -187,7 +184,7 @@ fn drain_actions(
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
                     }
                     "get" => {
-                        let key: String = request_value
+                        let key: String = command_value
                             .to_member("key")?
                             .required()?
                             .try_into()?; // TODO: dont use String
@@ -196,10 +193,11 @@ fn drain_actions(
                     }
                     _ => rufton::JsonLineValue::new("unknown type"),
                 };
-                if let Some((client_addr, req_id)) =
-                    proposal_id.and_then(|id| requests.remove(&id))
-                {
-                    send_response(socket, client_addr, &req_id, result)?;
+                if is_proposer {
+                    let req_id: rufton::JsonRpcRequestId =
+                        request_value.to_member("id")?.required()?.try_into()?;
+                    let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
+                    send_response(socket, src, &req_id, result)?;
                 }
             }
             // TODO: Add NotifyEvent
