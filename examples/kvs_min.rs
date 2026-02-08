@@ -94,7 +94,6 @@ fn handle_request(
         let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
         sock.send_to(res.as_bytes(), src)?;
     }
-
     Ok(())
 }
 
