@@ -2,7 +2,7 @@
 mod node_persist;
 
 use crate::node_types::{
-    Action, Command, JsonLineValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
+    Action, Command, JsonValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
 };
 
 #[derive(Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct Node {
     pub(crate) local_command_seqno: u64,
     pub(crate) applied_index: noraft::LogIndex,
     pub(crate) pending_queries:
-        std::collections::BTreeMap<(noraft::LogPosition, ProposalId), JsonLineValue>,
+        std::collections::BTreeMap<(noraft::LogPosition, ProposalId), JsonValue>,
 }
 
 impl Node {
@@ -22,7 +22,7 @@ impl Node {
         let mut action_queue = std::collections::VecDeque::new();
         let inner = noraft::Node::start(id);
         let entry = StorageEntry::NodeGeneration(inner.generation().get());
-        let value = JsonLineValue::new_internal(entry);
+        let value = JsonValue::new(entry);
         action_queue.push_back(Action::AppendStorageEntry(value));
         Self {
             inner,
@@ -97,12 +97,12 @@ impl Node {
     // - re-election
 
     fn propose(&mut self, command: Command) {
-        let value = JsonLineValue::new_internal(command);
+        let value = JsonValue::new(command);
         self.propose_command_value(value);
     }
 
     // TODO: in redirected case, this serialization can be eliminated
-    fn propose_command_value(&mut self, command: JsonLineValue) {
+    fn propose_command_value(&mut self, command: JsonValue) {
         if !self.initialized {
             return;
         }
@@ -120,7 +120,7 @@ impl Node {
         self.recent_commands.insert(position.index, command);
     }
 
-    pub fn propose_command(&mut self, request: JsonLineValue) {
+    pub fn propose_command(&mut self, request: JsonValue) {
         let proposal_id = self.next_proposal_id();
         let command = Command::Apply {
             proposal_id,
@@ -145,18 +145,18 @@ impl Node {
             return position;
         }
 
-        let value = JsonLineValue::new_internal(Command::Query);
+        let value = JsonValue::new(Command::Query);
         let position = self.inner.propose_command();
         self.recent_commands.insert(position.index, value);
         position
     }
 
-    pub fn propose_query(&mut self, request: JsonLineValue) {
+    pub fn propose_query(&mut self, request: JsonValue) {
         let proposal_id = self.next_proposal_id();
         self.propose_query_inner(proposal_id, request);
     }
 
-    fn propose_query_inner(&mut self, proposal_id: ProposalId, request: JsonLineValue) {
+    fn propose_query_inner(&mut self, proposal_id: ProposalId, request: JsonValue) {
         if self.inner.role().is_leader() {
             let position = self.leader_query_position();
             self.pending_queries
@@ -168,7 +168,7 @@ impl Node {
                 proposal_id,
                 request,
             };
-            let message = JsonLineValue::new_internal(query_message);
+            let message = JsonValue::new(query_message);
             self.push_action(Action::SendMessage(maybe_leader_id, message));
         } else {
             // TODO: add missing proposal event
@@ -180,7 +180,7 @@ impl Node {
         &mut self,
         from: noraft::NodeId,
         proposal_id: ProposalId,
-        request: JsonLineValue,
+        request: JsonValue,
     ) {
         if self.inner.role().is_leader() {
             let position = self.leader_query_position();
@@ -189,7 +189,7 @@ impl Node {
                 position,
                 request,
             };
-            let message = JsonLineValue::new_internal(query_message);
+            let message = JsonValue::new(query_message);
             self.push_action(Action::SendMessage(from, message));
         } else if let Some(maybe_leader_id) = self.leader_id() {
             let query_message = QueryMessage::Redirect {
@@ -197,7 +197,7 @@ impl Node {
                 proposal_id,
                 request,
             };
-            let message = JsonLineValue::new_internal(query_message);
+            let message = JsonValue::new(query_message);
             self.push_action(Action::SendMessage(maybe_leader_id, message));
         }
     }
@@ -226,7 +226,7 @@ impl Node {
     }
 
     // TODO: take JsonRpcRequest
-    pub fn handle_message(&mut self, message_value: &JsonLineValue) -> bool {
+    pub fn handle_message(&mut self, message_value: &JsonValue) -> bool {
         let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
             if self.handle_redirected_command(message_value) {
                 return true;
@@ -241,7 +241,7 @@ impl Node {
         true
     }
 
-    fn handle_raft_message(&mut self, message_value: &JsonLineValue, message: noraft::Message) {
+    fn handle_raft_message(&mut self, message_value: &JsonValue, message: noraft::Message) {
         self.initialize_if_needed();
         self.inner.handle_message(&message);
 
@@ -253,7 +253,7 @@ impl Node {
         }
     }
 
-    fn handle_redirected_command(&mut self, message_value: &JsonLineValue) -> bool {
+    fn handle_redirected_command(&mut self, message_value: &JsonValue) -> bool {
         if let Ok(command) = Command::try_from(message_value.get()) {
             // This is a redirected command
             //
@@ -265,7 +265,7 @@ impl Node {
         }
     }
 
-    fn handle_query_message(&mut self, message_value: &JsonLineValue) -> bool {
+    fn handle_query_message(&mut self, message_value: &JsonValue) -> bool {
         if let Ok(message) = QueryMessage::try_from(message_value.get()) {
             match message {
                 QueryMessage::Redirect {
@@ -380,7 +380,7 @@ impl Node {
                         .to_member("command")
                         .and_then(|value| value.required())
                         .expect("bug");
-                    JsonLineValue::new_internal(request_value)
+                    JsonValue::new(request_value)
                 }
                 "Query" => continue,
                 ty => panic!("bug: {ty}"),
@@ -442,18 +442,18 @@ impl Node {
     }
 
     fn enqueue_storage_entry(&mut self, entry: StorageEntry) {
-        let value = JsonLineValue::new_internal(entry);
+        let value = JsonValue::new(entry);
         self.push_action(Action::AppendStorageEntry(value));
     }
 
-    fn encode_message(&self, message: &noraft::Message) -> JsonLineValue {
-        JsonLineValue::new_internal(nojson::json(|f| {
+    fn encode_message(&self, message: &noraft::Message) -> JsonValue {
+        JsonValue::new(nojson::json(|f| {
             crate::conv::fmt_message(f, message, &self.recent_commands)
         }))
     }
 
-    fn encode_log_entries(&self, entries: &noraft::LogEntries) -> JsonLineValue {
-        JsonLineValue::new_internal(nojson::json(|f| {
+    fn encode_log_entries(&self, entries: &noraft::LogEntries) -> JsonValue {
+        JsonValue::new(nojson::json(|f| {
             crate::conv::fmt_log_entries(f, entries, &self.recent_commands)
         }))
     }

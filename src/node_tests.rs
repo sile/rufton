@@ -1,4 +1,4 @@
-use crate::{Action, JsonLineValue, Node, StorageEntry};
+use crate::{Action, JsonValue, Node, StorageEntry};
 
 #[test]
 fn init_cluster() {
@@ -46,7 +46,7 @@ fn load_increments_generation() {
     let mut node = Node::start(node_id(0));
     node.action_queue.clear();
 
-    let entry = JsonLineValue::new_internal(StorageEntry::NodeGeneration(0));
+    let entry = JsonValue::new(StorageEntry::NodeGeneration(0));
     node.load(std::slice::from_ref(&entry));
 
     assert_eq!(node.inner.generation().get(), 1);
@@ -63,8 +63,8 @@ fn load_uses_last_generation() {
     let mut node = Node::start(node_id(0));
     node.action_queue.clear();
 
-    let entry1 = JsonLineValue::new_internal(StorageEntry::NodeGeneration(2));
-    let entry2 = JsonLineValue::new_internal(StorageEntry::NodeGeneration(5));
+    let entry1 = JsonValue::new(StorageEntry::NodeGeneration(2));
+    let entry2 = JsonValue::new(StorageEntry::NodeGeneration(5));
     let entries = [entry1, entry2];
     node.load(&entries);
 
@@ -138,7 +138,7 @@ fn create_snapshot_includes_log_entries_suffix() {
         .expect("leader should exist");
     let follower_index = 1 - leader_index;
 
-    let request = JsonLineValue::new_internal("snapshot_test");
+    let request = JsonValue::new("snapshot_test");
     nodes[leader_index].propose_command(request);
 
     while let Some(action) = nodes[leader_index].next_action() {
@@ -258,7 +258,7 @@ fn propose_command_to_non_leader_node() {
     let follower_index = 1 - leader_index;
 
     // Try to propose a command to the non-leader
-    let request = JsonLineValue::new_internal("test_command");
+    let request = JsonValue::new("test_command");
     nodes[follower_index].propose_command(request);
 
     let actions = run_actions(&mut nodes);
@@ -299,7 +299,7 @@ fn propose_query() {
         .expect("leader should exist");
 
     // Propose a query on the leader
-    let request = JsonLineValue::new_internal("test_query");
+    let request = JsonValue::new("test_query");
     nodes[leader_index].propose_query(request.clone());
 
     let actions = run_actions(&mut nodes);
@@ -343,7 +343,7 @@ fn propose_query_on_non_leader_node() {
     let follower_index = 1 - leader_index;
 
     // Propose a query on the non-leader
-    let request = JsonLineValue::new_internal("test_query");
+    let request = JsonValue::new("test_query");
     nodes[follower_index].propose_query(request.clone());
 
     let actions = run_actions(&mut nodes);
@@ -376,11 +376,11 @@ fn strip_memory_log() {
     while node0.next_action().is_some() {}
 
     // Propose and commit some commands
-    let request1 = JsonLineValue::new_internal("command1");
+    let request1 = JsonValue::new("command1");
     node0.propose_command(request1);
     while node0.next_action().is_some() {}
 
-    let request2 = JsonLineValue::new_internal("command2");
+    let request2 = JsonValue::new("command2");
     node0.propose_command(request2);
     while node0.next_action().is_some() {}
 
@@ -403,7 +403,7 @@ fn strip_memory_log() {
 
 fn append_storage_entry_action(json: &str) -> Action {
     let raw_json = nojson::RawJsonOwned::parse(json.to_string()).expect("invalid json");
-    let value = JsonLineValue::new_internal(raw_json.value());
+    let value = JsonValue::new(raw_json.value());
     Action::AppendStorageEntry(value)
 }
 

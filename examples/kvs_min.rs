@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use noraft::NodeId;
-use rufton::{JsonLineValue, Node, Result};
+use rufton::{JsonValue, Node, Result};
 
 type KvsMachine = std::collections::HashMap<String, usize>;
 type Socket = std::net::UdpSocket; // rufton::LineFramedTcpSocket;
@@ -54,8 +54,8 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
         let params = request.to_member("params")?.required()?;
 
         if method == "_message" {
-            // TODO: remove JsonLineValue
-            node.handle_message(&rufton::JsonLineValue::new(params));
+            // TODO: remove JsonValue
+            node.handle_message(&rufton::JsonValue::new(params));
         } else {
             let id: u64 = request.to_member("id")?.required()?.try_into()?;
             let command = nojson::object(|f| {
@@ -64,12 +64,12 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                 f.member("id", id)?;
                 f.member("src", src_addr)
             });
-            node.propose_command(rufton::JsonLineValue::new(command));
+            node.propose_command(rufton::JsonValue::new(command));
         }
     }
 }
 
-fn broadcast_message(sock: &mut Socket, node: &Node, msg: JsonLineValue) -> Result<()> {
+fn broadcast_message(sock: &mut Socket, node: &Node, msg: JsonValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
     for dst in node.peers() {
         let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
@@ -78,7 +78,7 @@ fn broadcast_message(sock: &mut Socket, node: &Node, msg: JsonLineValue) -> Resu
     Ok(())
 }
 
-fn send_message(sock: &mut Socket, dst: NodeId, msg: JsonLineValue) -> Result<()> {
+fn send_message(sock: &mut Socket, dst: NodeId, msg: JsonValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
     let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
     sock.send_to(req.as_bytes(), addr)?;
@@ -89,7 +89,7 @@ fn handle_command(
     sock: &mut Socket,
     machine: &mut KvsMachine,
     is_proposed: bool,
-    request: JsonLineValue,
+    request: JsonValue,
 ) -> Result<()> {
     let request_value = request.get();
     let method: &str = request_value.to_member("method")?.required()?.try_into()?;

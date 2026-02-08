@@ -1,9 +1,9 @@
 use crate::node_core::Node;
-use crate::node_types::{Action, JsonLineValue, RecentCommands, StorageEntry};
+use crate::node_types::{Action, JsonValue, RecentCommands, StorageEntry};
 
 impl Node {
     fn parse_snapshot_json(
-        snapshot: &JsonLineValue,
+        snapshot: &JsonValue,
     ) -> Result<(noraft::LogPosition, noraft::ClusterConfig), nojson::JsonParseError> {
         let snapshot_json = snapshot.get();
 
@@ -39,7 +39,7 @@ impl Node {
 
     pub fn load<'a>(
         &mut self,
-        entries: &'a [JsonLineValue],
+        entries: &'a [JsonValue],
     ) -> (bool, Option<nojson::RawJsonValue<'a, 'a>>) {
         struct LoadState<'a> {
             current_term: noraft::Term,
@@ -93,7 +93,7 @@ impl Node {
                 }
                 "Command" => {
                     let command_json = entry_value.to_member("value")?.required()?;
-                    let command = JsonLineValue::new_internal(command_json);
+                    let command = JsonValue::new(command_json);
 
                     let current_index = noraft::LogIndex::new(
                         log_entries.prev_position().index.get() + log_entries.len() as u64 + 1,
@@ -238,7 +238,7 @@ impl Node {
         self.local_command_seqno = 0;
 
         let entry = StorageEntry::NodeGeneration(new_generation);
-        let value = JsonLineValue::new_internal(entry);
+        let value = JsonValue::new(entry);
         self.push_action(Action::AppendStorageEntry(value));
 
         (true, state.user_machine)
@@ -248,7 +248,7 @@ impl Node {
         &self,
         applied_index: noraft::LogIndex,
         machine: &T,
-    ) -> Option<JsonLineValue> {
+    ) -> Option<JsonValue> {
         let i = self.applied_index;
         if i != applied_index || i != self.inner.commit_index() {
             return None;
@@ -306,7 +306,7 @@ impl Node {
                 }),
             )
         });
-        let value = JsonLineValue::new_internal(json);
+        let value = JsonValue::new(json);
         Some(value)
     }
 }

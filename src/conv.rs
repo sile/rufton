@@ -185,7 +185,7 @@ fn parse_log_entry(
 pub fn get_command_values(
     value: nojson::RawJsonValue<'_, '_>,
     message: &noraft::Message,
-) -> Option<impl Iterator<Item = (noraft::LogPosition, crate::node::JsonLineValue)>> {
+) -> Option<impl Iterator<Item = (noraft::LogPosition, crate::node::JsonValue)>> {
     let noraft::Message::AppendEntriesCall { entries, .. } = message else {
         return None;
     };
@@ -207,7 +207,7 @@ pub fn get_command_values(
                     .to_member("value")
                     .and_then(|v| v.required())
                     .expect("bug");
-                Some((pos, crate::node::JsonLineValue::new_internal(command_value)))
+                Some((pos, crate::node::JsonValue::new(command_value)))
             }),
     )
 }

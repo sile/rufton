@@ -106,15 +106,11 @@ impl Kvs {
                     f.member("id", req_id.clone())?;
                     f.member("src", src_addr)
                 });
-                self.node
-                    .propose_command(rufton::JsonLineValue::new(request));
+                self.node.propose_command(rufton::JsonValue::new(request));
             } else {
                 assert_eq!(req.method(), "Internal");
                 let params = req.params().expect("bug");
-                assert!(
-                    self.node
-                        .handle_message(&rufton::JsonLineValue::new(params))
-                );
+                assert!(self.node.handle_message(&rufton::JsonValue::new(params)));
             }
         }
     }
@@ -164,14 +160,14 @@ impl Kvs {
                             .extract()
                             .into_owned();
                         let old = self.machine.insert(key, value);
-                        rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
+                        rufton::JsonValue::new(nojson::object(|f| f.member("old", &old)))
                     }
                     "get" => {
                         let key: String = command_value.to_member("key")?.required()?.try_into()?; // TODO: dont use String
                         let value = self.machine.get(&key);
-                        rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
+                        rufton::JsonValue::new(nojson::object(|f| f.member("value", value)))
                     }
-                    _ => rufton::JsonLineValue::new("unknown type"),
+                    _ => rufton::JsonValue::new("unknown type"),
                 };
                 if is_proposer {
                     let req_id: rufton::JsonRpcRequestId =

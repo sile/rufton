@@ -1,4 +1,4 @@
-use crate::node::JsonLineValue;
+use crate::node::JsonValue;
 
 #[derive(Debug)]
 pub struct FileStorage {
@@ -16,7 +16,7 @@ impl FileStorage {
         Ok(Self { file })
     }
 
-    pub fn load_entries(&mut self) -> std::io::Result<Vec<JsonLineValue>> {
+    pub fn load_entries(&mut self) -> std::io::Result<Vec<JsonValue>> {
         use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
         // Reset file pointer to the beginning
@@ -37,7 +37,7 @@ impl FileStorage {
             // Parse JSON using nojson
             match nojson::RawJsonOwned::parse(trimmed) {
                 Ok(raw_json) => {
-                    let value = JsonLineValue::new_internal(raw_json.value());
+                    let value = JsonValue::new(raw_json.value());
                     entries.push(value);
                 }
                 Err(e) => eprintln!("Warning: Failed to parse JSON line: {}", e),
@@ -47,7 +47,7 @@ impl FileStorage {
         Ok(entries)
     }
 
-    pub fn append_entry(&mut self, entry: &JsonLineValue) -> std::io::Result<()> {
+    pub fn append_entry(&mut self, entry: &JsonValue) -> std::io::Result<()> {
         use std::io::Write;
 
         // Write the entry to the file
@@ -59,7 +59,7 @@ impl FileStorage {
         Ok(())
     }
 
-    pub fn save_snapshot(&mut self, entry: &JsonLineValue) -> std::io::Result<()> {
+    pub fn save_snapshot(&mut self, entry: &JsonValue) -> std::io::Result<()> {
         use std::io::Write;
 
         // Truncate the file to clear all existing content
@@ -82,7 +82,7 @@ impl FileStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::{JsonLineValue, Node, StorageEntry};
+    use crate::node::{JsonValue, Node, StorageEntry};
     use std::fs;
     use tempfile::TempDir;
 
@@ -146,8 +146,8 @@ mod tests {
         let storage_path = temp_dir.path().join("test_storage.jsonl");
 
         // Create and append entries
-        let entry1 = JsonLineValue::new_internal(StorageEntry::Term(noraft::Term::new(1)));
-        let entry2 = JsonLineValue::new_internal(StorageEntry::NodeGeneration(5));
+        let entry1 = JsonValue::new(StorageEntry::Term(noraft::Term::new(1)));
+        let entry2 = JsonValue::new(StorageEntry::NodeGeneration(5));
 
         {
             let mut storage = FileStorage::open(&storage_path).expect("Failed to open storage");
@@ -171,9 +171,9 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let storage_path = temp_dir.path().join("snapshot_storage.jsonl");
 
-        let entry1 = JsonLineValue::new_internal(StorageEntry::Term(noraft::Term::new(1)));
-        let entry2 = JsonLineValue::new_internal(StorageEntry::Term(noraft::Term::new(2)));
-        let entry3 = JsonLineValue::new_internal(StorageEntry::Term(noraft::Term::new(3)));
+        let entry1 = JsonValue::new(StorageEntry::Term(noraft::Term::new(1)));
+        let entry2 = JsonValue::new(StorageEntry::Term(noraft::Term::new(2)));
+        let entry3 = JsonValue::new(StorageEntry::Term(noraft::Term::new(3)));
 
         // Write multiple entries
         {

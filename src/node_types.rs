@@ -1,4 +1,4 @@
-pub type RecentCommands = std::collections::BTreeMap<noraft::LogIndex, JsonLineValue>;
+pub type RecentCommands = std::collections::BTreeMap<noraft::LogIndex, JsonValue>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct ProposalId {
@@ -41,17 +41,13 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for ProposalId {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct JsonLineValue(std::sync::Arc<nojson::RawJsonOwned>);
+pub struct JsonValue(std::sync::Arc<nojson::RawJsonOwned>);
 
-impl JsonLineValue {
-    pub(crate) fn new_internal<T: nojson::DisplayJson>(v: T) -> Self {
+impl JsonValue {
+    pub fn new<T: nojson::DisplayJson>(v: T) -> Self {
         let line = nojson::Json(v).to_string();
         let json = nojson::RawJsonOwned::parse(line).expect("infallible");
         Self(std::sync::Arc::new(json))
-    }
-
-    pub fn new<T: nojson::DisplayJson>(v: T) -> Self {
-        Self::new_internal(v)
     }
 
     pub fn get(&self) -> nojson::RawJsonValue<'_, '_> {
@@ -76,19 +72,19 @@ impl JsonLineValue {
     }
 }
 
-impl nojson::DisplayJson for JsonLineValue {
+impl nojson::DisplayJson for JsonValue {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         write!(f.inner_mut(), "{}", self.0.text())
     }
 }
 
-impl std::fmt::Debug for JsonLineValue {
+impl std::fmt::Debug for JsonValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.text())
     }
 }
 
-impl std::fmt::Display for JsonLineValue {
+impl std::fmt::Display for JsonValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.text())
     }
@@ -100,12 +96,12 @@ pub(crate) enum QueryMessage {
     Redirect {
         from: noraft::NodeId,
         proposal_id: ProposalId,
-        request: JsonLineValue,
+        request: JsonValue,
     },
     Proposed {
         proposal_id: ProposalId,
         position: noraft::LogPosition,
-        request: JsonLineValue,
+        request: JsonValue,
     },
 }
 
@@ -150,7 +146,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
                 let from: u64 = value.to_member("from")?.required()?.try_into()?;
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 let request_json = value.to_member("request")?.required()?;
-                let request = JsonLineValue::new_internal(request_json);
+                let request = JsonValue::new(request_json);
                 Ok(QueryMessage::Redirect {
                     from: noraft::NodeId::new(from),
                     proposal_id,
@@ -163,7 +159,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
                 let index =
                     noraft::LogIndex::new(value.to_member("index")?.required()?.try_into()?);
                 let request_json = value.to_member("request")?.required()?;
-                let request = JsonLineValue::new_internal(request_json);
+                let request = JsonValue::new(request_json);
                 Ok(QueryMessage::Proposed {
                     proposal_id,
                     position: noraft::LogPosition { term, index },
@@ -179,7 +175,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
 pub(crate) enum Command {
     Apply {
         proposal_id: ProposalId,
-        command: JsonLineValue,
+        command: JsonValue,
     },
     Query,
 }
@@ -212,7 +208,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
             "Apply" => {
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
                 let command_json = value.to_member("command")?.required()?;
-                let command = JsonLineValue::new_internal(command_json);
+                let command = JsonValue::new(command_json);
                 Ok(Command::Apply {
                     proposal_id,
                     command,
@@ -227,15 +223,15 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     SetTimeout(noraft::Role),
-    AppendStorageEntry(JsonLineValue),
-    BroadcastMessage(JsonLineValue),
-    SendMessage(noraft::NodeId, JsonLineValue),
+    AppendStorageEntry(JsonValue),
+    BroadcastMessage(JsonValue),
+    SendMessage(noraft::NodeId, JsonValue),
     SendSnapshot(noraft::NodeId),
     // TODO: NotifyEvent
     Apply {
         is_proposer: bool,
         index: noraft::LogIndex,
-        request: JsonLineValue,
+        request: JsonValue,
     },
 }
 

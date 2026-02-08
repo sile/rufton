@@ -122,11 +122,11 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 f.member("id", req_id.clone())?;
                 f.member("src", src_addr)
             });
-            node.propose_command(rufton::JsonLineValue::new(request));
+            node.propose_command(rufton::JsonValue::new(request));
         } else {
             assert_eq!(req.method(), "Internal");
             let params = req.params().expect("bug");
-            assert!(node.handle_message(&rufton::JsonLineValue::new(params)));
+            assert!(node.handle_message(&rufton::JsonValue::new(params)));
         }
     }
 }
@@ -184,14 +184,14 @@ fn drain_actions(
                             .extract()
                             .into_owned();
                         let old = machine.insert(key, value);
-                        rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
+                        rufton::JsonValue::new(nojson::object(|f| f.member("old", &old)))
                     }
                     "get" => {
                         let key: String = command_value.to_member("key")?.required()?.try_into()?; // TODO: dont use String
                         let value = machine.get(&key);
-                        rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
+                        rufton::JsonValue::new(nojson::object(|f| f.member("value", value)))
                     }
-                    _ => rufton::JsonLineValue::new("unknown type"),
+                    _ => rufton::JsonValue::new("unknown type"),
                 };
                 if is_proposer {
                     let req_id: rufton::JsonRpcRequestId =
