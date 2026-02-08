@@ -36,7 +36,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                     is_proposer,
                     request,
                     ..
-                } => handle_command(&mut sock, &mut machine, is_proposer, request)?,
+                } => handle_request(&mut sock, &mut machine, is_proposer, request)?,
                 rufton::Action::SetTimeout(_) | rufton::Action::AppendStorageEntry(_) => {}
                 a => todo!("{a:?}"),
             }
@@ -81,7 +81,7 @@ fn send_message(sock: &mut Socket, dst: NodeId, msg: JsonValue) -> Result<()> {
     Ok(())
 }
 
-fn handle_command(
+fn handle_request(
     sock: &mut Socket,
     machine: &mut KvsMachine,
     is_proposed: bool,
@@ -90,11 +90,11 @@ fn handle_command(
     let request_value = request.get();
     let method: &str = request_value.to_member("method")?.required()?.try_into()?;
     let params = request_value.to_member("params")?.required()?;
-    let id: u64 = request_value.to_member("id")?.required()?.try_into()?;
-    let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
 
     let result = apply(machine, method, params)?;
     if is_proposed {
+        let id: u64 = request_value.to_member("id")?.required()?.try_into()?;
+        let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
         let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
         sock.send_to(res.as_bytes(), src)?;
     }
