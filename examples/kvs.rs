@@ -138,38 +138,35 @@ impl Kvs {
                 // TODO: take snapshot if node.recent_commits().len() gets too long
                 self.send_request(addr(dst), "Internal", &m)?;
             }
-            rufton::Action::Commit {
+            rufton::Action::Apply {
                 proposal_id,
                 index,
                 command,
             } => {
-                eprintln!("Commit: {} ({:?})", index.get(), proposal_id);
-
-                if let Some(command) = command {
-                    let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
-                    let ty = v.to_member("type")?.required()?.as_string_str()?;
-                    let result = match ty {
-                        "put" => {
-                            let key = v.to_member("key")?.required()?.try_into()?;
-                            let value = v.to_member("value")?.required()?.extract().into_owned();
-                            let old = self.machine.insert(key, value);
-                            rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
-                        }
-                        "get" => {
-                            let key: String = v.to_member("key")?.required()?.try_into()?; // TODO: dont use String
-                            let value = self.machine.get(&key);
-                            rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
-                        }
-                        _ => rufton::JsonLineValue::new("unknown type"),
-                    };
-                    if let Some((client_addr, req_id)) =
-                        proposal_id.and_then(|id| self.requests.remove(&id))
-                    {
-                        self.send_response(client_addr, &req_id, result)?;
+                eprintln!("Apply: {} ({:?})", index.get(), proposal_id);
+                let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
+                let ty = v.to_member("type")?.required()?.as_string_str()?;
+                let result = match ty {
+                    "put" => {
+                        let key = v.to_member("key")?.required()?.try_into()?;
+                        let value = v.to_member("value")?.required()?.extract().into_owned();
+                        let old = self.machine.insert(key, value);
+                        rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
                     }
+                    "get" => {
+                        let key: String = v.to_member("key")?.required()?.try_into()?; // TODO: dont use String
+                        let value = self.machine.get(&key);
+                        rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
+                    }
+                    _ => rufton::JsonLineValue::new("unknown type"),
+                };
+                if let Some((client_addr, req_id)) =
+                    proposal_id.and_then(|id| self.requests.remove(&id))
+                {
+                    self.send_response(client_addr, &req_id, result)?;
                 }
             }
-            rufton::Action::Query { .. } => unreachable!(), // TODO: Merge with Commit (and rename to Apply)
+            rufton::Action::Query { .. } => unreachable!(), // TODO: Merge Query with Apply
                                                             // TODO: Add NotifyEvent
         }
         Ok(())

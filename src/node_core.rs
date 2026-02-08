@@ -346,12 +346,12 @@ impl Node {
             let proposal_id = command.get_optional_member("proposal_id").expect("bug");
 
             let command = match command.get_member::<String>("type").expect("bug").as_str() {
-                "Apply" => Some(command),
-                "Query" => None,
+                "Apply" => command,
+                "Query" => continue,
                 ty => panic!("bug: {ty}"),
             };
 
-            self.push_action(Action::Commit {
+            self.push_action(Action::Apply {
                 index,
                 proposal_id,
                 command,

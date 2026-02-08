@@ -262,10 +262,10 @@ fn propose_command_to_non_leader_node() {
     let proposal_id = nodes[follower_index].propose_command(command);
 
     let actions = run_actions(&mut nodes);
-    // Check that actions contain a Commit with the matching proposal_id
-    let found_commit = actions.iter().any(|(node_id, action)| {
+    // Check that actions contain an Apply with the matching proposal_id
+    let found_apply = actions.iter().any(|(node_id, action)| {
         dbg!(node_id, action);
-        if let Action::Commit {
+        if let Action::Apply {
             proposal_id: id, ..
         } = action
             && *id == Some(proposal_id)
@@ -277,8 +277,8 @@ fn propose_command_to_non_leader_node() {
         }
     });
     assert!(
-        found_commit,
-        "Commit action with matching proposal_id should be in actions"
+        found_apply,
+        "Apply action with matching proposal_id should be in actions"
     );
 }
 
@@ -317,6 +317,7 @@ fn propose_query() {
         found_query,
         "Query action with matching proposal_id should be returned by leader"
     );
+
 }
 
 #[test]

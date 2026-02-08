@@ -32,9 +32,9 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
             match action {
                 rufton::Action::BroadcastMessage(msg) => broadcast_message(&mut sock, &node, msg)?,
                 rufton::Action::SendMessage(dst, msg) => send_message(&mut sock, dst, msg)?,
-                rufton::Action::Commit {
+                rufton::Action::Apply {
                     proposal_id,
-                    command: Some(command), // TDOO: remove
+                    command,
                     ..
                 } => {
                     // TODO: call apply() here

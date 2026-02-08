@@ -213,10 +213,10 @@ pub enum Action {
     SendMessage(noraft::NodeId, JsonLineValue),
     SendSnapshot(noraft::NodeId),
     // TODO: NotifyEvent
-    Commit {
+    Apply {
         proposal_id: Option<ProposalId>,
         index: noraft::LogIndex,
-        command: Option<JsonLineValue>,
+        command: JsonLineValue,
     },
     Query {
         proposal_id: ProposalId,
