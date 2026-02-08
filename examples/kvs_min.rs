@@ -87,10 +87,7 @@ fn handle_request(
     is_proposed: bool,
     request: nojson::RawJsonValue,
 ) -> Result<()> {
-    let method: &str = request.to_member("method")?.required()?.try_into()?;
-    let params = request.to_member("params")?.required()?;
-
-    let result = apply(machine, method, params)?;
+    let result = apply(machine, request)?;
     if is_proposed {
         let id: u64 = request.to_member("id")?.required()?.try_into()?;
         let src: SocketAddr = request.to_member("src")?.required()?.try_into()?;
@@ -101,7 +98,9 @@ fn handle_request(
     Ok(())
 }
 
-fn apply(machine: &mut KvsMachine, method: &str, params: nojson::RawJsonValue) -> Result<String> {
+fn apply(machine: &mut KvsMachine, request: nojson::RawJsonValue) -> Result<String> {
+    let method: &str = request.to_member("method")?.required()?.try_into()?;
+    let params = request.to_member("params")?.required()?;
     match method {
         "put" => {
             let key: String = params.to_member("key")?.required()?.try_into()?;
