@@ -105,12 +105,12 @@ fn apply(machine: &mut KvsMachine, request: nojson::RawJsonValue) -> Result<Stri
             let key: String = params.to_member("key")?.required()?.try_into()?;
             let value: usize = params.to_member("value")?.required()?.try_into()?;
             let old = machine.insert(key, value);
-            Ok(format!(r#"{{"old": {}}}"#, nojson::Json(old)))
+            Ok(nojson::object(|f| f.member("old", old)).to_string())
         }
         "get" => {
             let key: &str = params.to_member("key")?.required()?.try_into()?;
             let value = machine.get(key);
-            Ok(format!(r#"{{"value": {}}}"#, nojson::Json(value)))
+            Ok(nojson::object(|f| f.member("value", value)).to_string())
         }
         _ => Err(rufton::Error::new("unknown method")),
     }
