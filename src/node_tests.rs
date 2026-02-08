@@ -143,7 +143,7 @@ fn create_snapshot_includes_log_entries_suffix() {
 
     while let Some(action) = nodes[leader_index].next_action() {
         if let Action::BroadcastMessage(m) = action {
-            assert!(nodes[follower_index].handle_message(&m));
+            assert!(nodes[follower_index].handle_message(m.get()));
             break;
         }
     }
@@ -190,13 +190,13 @@ fn run_actions(nodes: &mut [Node]) -> Vec<(noraft::NodeId, Action)> {
                     Action::BroadcastMessage(m) => {
                         for j in 0..nodes.len() {
                             if i != j {
-                                assert!(nodes[j].handle_message(&m));
+                                assert!(nodes[j].handle_message(m.get()));
                             }
                         }
                     }
                     Action::SendMessage(j, m) => {
                         let j = j.get() as usize;
-                        assert!(nodes[j].handle_message(&m));
+                        assert!(nodes[j].handle_message(m.get()));
                     }
                     Action::SendSnapshot(j) => {
                         let j = j.get() as usize;

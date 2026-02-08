@@ -110,7 +110,7 @@ impl Kvs {
             } else {
                 assert_eq!(req.method(), "Internal");
                 let params = req.params().expect("bug");
-                assert!(self.node.handle_message(&rufton::JsonValue::new(params)));
+                assert!(self.node.handle_message(params));
             }
         }
     }

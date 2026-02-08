@@ -225,9 +225,8 @@ impl Node {
         self.inner.handle_election_timeout();
     }
 
-    // TODO: take JsonRpcRequest
-    pub fn handle_message(&mut self, message_value: &JsonValue) -> bool {
-        let Ok(message) = crate::conv::json_to_message(message_value.get()) else {
+    pub fn handle_message(&mut self, message_value: nojson::RawJsonValue<'_, '_>) -> bool {
+        let Ok(message) = crate::conv::json_to_message(message_value) else {
             if self.handle_redirected_command(message_value) {
                 return true;
             }
@@ -241,11 +240,15 @@ impl Node {
         true
     }
 
-    fn handle_raft_message(&mut self, message_value: &JsonValue, message: noraft::Message) {
+    fn handle_raft_message(
+        &mut self,
+        message_value: nojson::RawJsonValue<'_, '_>,
+        message: noraft::Message,
+    ) {
         self.initialize_if_needed();
         self.inner.handle_message(&message);
 
-        let command_values = crate::conv::get_command_values(message_value.get(), &message);
+        let command_values = crate::conv::get_command_values(message_value, &message);
         for (pos, command) in command_values.into_iter().flatten() {
             if self.inner.log().entries().contains(pos) {
                 self.recent_commands.insert(pos.index, command);
@@ -253,8 +256,8 @@ impl Node {
         }
     }
 
-    fn handle_redirected_command(&mut self, message_value: &JsonValue) -> bool {
-        if let Ok(command) = Command::try_from(message_value.get()) {
+    fn handle_redirected_command(&mut self, message_value: nojson::RawJsonValue<'_, '_>) -> bool {
+        if let Ok(command) = Command::try_from(message_value) {
             // This is a redirected command
             //
             // TODO: Add redirect count limit
@@ -265,8 +268,8 @@ impl Node {
         }
     }
 
-    fn handle_query_message(&mut self, message_value: &JsonValue) -> bool {
-        if let Ok(message) = QueryMessage::try_from(message_value.get()) {
+    fn handle_query_message(&mut self, message_value: nojson::RawJsonValue<'_, '_>) -> bool {
+        if let Ok(message) = QueryMessage::try_from(message_value) {
             match message {
                 QueryMessage::Redirect {
                     from,

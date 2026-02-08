@@ -126,7 +126,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
         } else {
             assert_eq!(req.method(), "Internal");
             let params = req.params().expect("bug");
-            assert!(node.handle_message(&rufton::JsonValue::new(params)));
+            assert!(node.handle_message(params));
         }
     }
 }

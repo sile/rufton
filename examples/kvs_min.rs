@@ -54,8 +54,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
         let params = request.to_member("params")?.required()?;
 
         if method == "_message" {
-            // TODO: remove JsonValue
-            node.handle_message(&rufton::JsonValue::new(params));
+            node.handle_message(params);
         } else {
             let id: u64 = request.to_member("id")?.required()?.try_into()?;
             let command = nojson::object(|f| {
