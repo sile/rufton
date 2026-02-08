@@ -175,7 +175,10 @@ impl Kvs {
                     let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
                     self.send_response(src, &req_id, result)?;
                 }
-            } // TODO: Add NotifyEvent
+            }
+            rufton::Action::NotifyEvent(event) => {
+                eprintln!("Event: {}", event);
+            }
         }
         Ok(())
     }

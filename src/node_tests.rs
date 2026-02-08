@@ -7,24 +7,27 @@ fn init_cluster() {
     assert!(node.init_cluster(&members));
     assert!(!node.init_cluster(&members));
     assert_eq!(
-        node.next_action(),
+        next_non_event_action(&mut node),
         Some(append_storage_entry_action(
             r#"{"type":"NodeGeneration","generation":0}"#
         ))
     );
-    assert_eq!(node.next_action(), Some(set_leader_timeout_action()));
     assert_eq!(
-        node.next_action(),
+        next_non_event_action(&mut node),
+        Some(set_leader_timeout_action())
+    );
+    assert_eq!(
+        next_non_event_action(&mut node),
         Some(append_storage_entry_action(r#"{"type":"Term","term":1}"#))
     );
     assert_eq!(
-        node.next_action(),
+        next_non_event_action(&mut node),
         Some(append_storage_entry_action(
             r#"{"type":"VotedFor","node_id":0}"#
         ))
     );
     assert!(matches!(
-        node.next_action(),
+        next_non_event_action(&mut node),
         Some(Action::AppendStorageEntry(_))
     ));
     while node.next_action().is_some() {}
@@ -405,6 +408,15 @@ fn append_storage_entry_action(json: &str) -> Action {
     let raw_json = nojson::RawJsonOwned::parse(json.to_string()).expect("invalid json");
     let value = JsonValue::new(raw_json.value());
     Action::AppendStorageEntry(value)
+}
+
+fn next_non_event_action(node: &mut Node) -> Option<Action> {
+    while let Some(action) = node.next_action() {
+        if !matches!(action, Action::NotifyEvent(_)) {
+            return Some(action);
+        }
+    }
+    None
 }
 
 fn set_leader_timeout_action() -> Action {

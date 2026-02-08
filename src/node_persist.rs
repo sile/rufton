@@ -231,6 +231,7 @@ impl Node {
             state.voted_for,
             log,
         );
+        self.last_role = self.inner.role();
         self.recent_commands = state.recent_commands;
         self.applied_index = state.applied_index;
         self.initialized = !state.config.voters.is_empty() || !state.config.new_voters.is_empty();

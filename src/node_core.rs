@@ -2,7 +2,7 @@
 mod node_persist;
 
 use crate::node_types::{
-    Action, Command, JsonValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
+    Action, Command, Event, JsonValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
 };
 
 #[derive(Debug, Clone)]
@@ -15,12 +15,14 @@ pub struct Node {
     pub(crate) applied_index: noraft::LogIndex,
     pub(crate) pending_queries:
         std::collections::BTreeMap<(noraft::LogPosition, ProposalId), JsonValue>,
+    pub(crate) last_role: noraft::Role,
 }
 
 impl Node {
     pub fn start(id: noraft::NodeId) -> Self {
         let mut action_queue = std::collections::VecDeque::new();
         let inner = noraft::Node::start(id);
+        let last_role = inner.role();
         let entry = StorageEntry::NodeGeneration(inner.generation().get());
         let value = JsonValue::new(entry);
         action_queue.push_back(Action::AppendStorageEntry(value));
@@ -32,6 +34,7 @@ impl Node {
             local_command_seqno: 0,
             applied_index: noraft::LogIndex::ZERO,
             pending_queries: std::collections::BTreeMap::new(),
+            last_role,
         }
     }
 
@@ -56,6 +59,7 @@ impl Node {
         }
 
         self.inner.create_cluster(members);
+        self.maybe_emit_role_events();
         self.initialized = true;
 
         true
@@ -225,6 +229,7 @@ impl Node {
 
     pub fn handle_timeout(&mut self) {
         self.inner.handle_election_timeout();
+        self.maybe_emit_role_events();
     }
 
     pub fn handle_message(&mut self, message_value: nojson::RawJsonValue<'_, '_>) -> bool {
@@ -249,6 +254,7 @@ impl Node {
     ) {
         self.initialize_if_needed();
         self.inner.handle_message(&message);
+        self.maybe_emit_role_events();
 
         let command_values = crate::conv::get_command_values(message_value, &message);
         for (pos, command) in command_values.into_iter().flatten() {
@@ -323,6 +329,25 @@ impl Node {
             //
             // This would affect the result of inner.actions_mut(). So call it before that (minor optimization).
             self.inner.heartbeat();
+        }
+    }
+
+    fn maybe_emit_role_events(&mut self) {
+        let role = self.inner.role();
+        if role == self.last_role {
+            return;
+        }
+
+        let prev_role = self.last_role;
+        self.last_role = role;
+        self.push_action(Action::NotifyEvent(Event::RoleChanged {
+            from: prev_role,
+            to: role,
+        }));
+        if role.is_leader() {
+            self.push_action(Action::NotifyEvent(Event::BecameLeader {
+                term: self.inner.current_term(),
+            }));
         }
     }
 

@@ -37,6 +37,9 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                     request,
                     ..
                 } => handle_request(&mut sock, &mut machine, is_proposer, request.get())?,
+                rufton::Action::NotifyEvent(event) => {
+                    eprintln!("Event: {}", event);
+                }
                 rufton::Action::SetTimeout(_) | rufton::Action::AppendStorageEntry(_) => {}
                 a => todo!("{a:?}"),
             }

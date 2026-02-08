@@ -199,7 +199,10 @@ fn drain_actions(
                     let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
                     send_response(socket, src, &req_id, result)?;
                 }
-            } // TODO: Add NotifyEvent
+            }
+            rufton::Action::NotifyEvent(event) => {
+                eprintln!("Event: {}", event);
+            }
         }
     }
     Ok(())

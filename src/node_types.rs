@@ -227,12 +227,37 @@ pub enum Action {
     BroadcastMessage(JsonValue),
     SendMessage(noraft::NodeId, JsonValue),
     SendSnapshot(noraft::NodeId),
-    // TODO: NotifyEvent
+    NotifyEvent(Event),
     Apply {
         is_proposer: bool,
         index: noraft::LogIndex,
         request: JsonValue,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Event {
+    RoleChanged { from: noraft::Role, to: noraft::Role },
+    BecameLeader { term: noraft::Term },
+}
+
+impl std::fmt::Display for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn role_label(role: noraft::Role) -> &'static str {
+            match role {
+                noraft::Role::Follower => "Follower",
+                noraft::Role::Candidate => "Candidate",
+                noraft::Role::Leader => "Leader",
+            }
+        }
+
+        match self {
+            Event::RoleChanged { from, to } => {
+                write!(f, "role changed: {} -> {}", role_label(*from), role_label(*to))
+            }
+            Event::BecameLeader { term } => write!(f, "became leader (term={})", term.get()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
