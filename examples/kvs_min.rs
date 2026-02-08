@@ -4,7 +4,7 @@ use noraft::NodeId;
 use rufton::{JsonLineValue, Node, Result};
 
 type KvsMachine = std::collections::HashMap<String, usize>;
-type Socket = rufton::LineFramedTcpSocket;
+type Socket = std::net::UdpSocket; // rufton::LineFramedTcpSocket;
 
 pub fn main() -> rufton::Result<()> {
     let Some(arg) = std::env::args().nth(1) else {
@@ -40,7 +40,8 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                     // TODO: call apply() here
                     handle_command(&mut sock, &mut machine, proposal_id.is_some(), command)?;
                 }
-                _ => todo!(),
+                rufton::Action::SetTimeout(_) | rufton::Action::AppendStorageEntry(_) => {}
+                a => todo!("{a:?}"),
             }
         }
 
@@ -51,12 +52,12 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
 
         let method: &str = request.to_member("method")?.required()?.try_into()?;
         let params = request.to_member("params")?.required()?;
-        let id: u64 = request.to_member("id")?.required()?.try_into()?;
 
         if method == "_message" {
             // TODO: remove JsonLineValue
             node.handle_message(&rufton::JsonLineValue::new(params));
         } else {
+            let id: u64 = request.to_member("id")?.required()?.try_into()?;
             let command = nojson::object(|f| {
                 f.member("method", method)?;
                 f.member("params", params)?;
