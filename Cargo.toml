@@ -1,7 +1,13 @@
 [package]
 name = "rufton"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
+authors = ["Takeru Ohta <phjgt308@gmail.com>"]
+license = "MIT"
+description = "Rust + Raft + JSON = rufton"
+homepage = "https://github.com/sile/rufton"
+repository = "https://github.com/sile/rufton"
+readme = "README.md"
 
 [dependencies]
 mio = { version = "1.1.1", default-features=false, features = ["os-poll", "net"] }
