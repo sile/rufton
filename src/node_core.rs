@@ -370,7 +370,14 @@ impl Node {
             let proposal_id = command.get_optional_member("proposal_id").expect("bug");
 
             let request = match command.get_member::<String>("type").expect("bug").as_str() {
-                "Apply" => command,
+                "Apply" => {
+                    let request_value = command
+                        .get()
+                        .to_member("command")
+                        .and_then(|value| value.required())
+                        .expect("bug");
+                    JsonLineValue::new_internal(request_value)
+                }
                 "Query" => continue,
                 ty => panic!("bug: {ty}"),
             };

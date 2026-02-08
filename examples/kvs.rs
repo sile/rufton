@@ -144,17 +144,30 @@ impl Kvs {
                 request,
             } => {
                 eprintln!("Apply: {} ({:?})", index.get(), proposal_id);
-                let v = request.get().to_member("command")?.required()?; // TODO: Remove this call
-                let ty = v.to_member("type")?.required()?.as_string_str()?;
+                let request_value = request.get();
+                let ty = request_value
+                    .to_member("type")?
+                    .required()?
+                    .as_string_str()?;
                 let result = match ty {
                     "put" => {
-                        let key = v.to_member("key")?.required()?.try_into()?;
-                        let value = v.to_member("value")?.required()?.extract().into_owned();
+                        let key = request_value
+                            .to_member("key")?
+                            .required()?
+                            .try_into()?;
+                        let value = request_value
+                            .to_member("value")?
+                            .required()?
+                            .extract()
+                            .into_owned();
                         let old = self.machine.insert(key, value);
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
                     }
                     "get" => {
-                        let key: String = v.to_member("key")?.required()?.try_into()?; // TODO: dont use String
+                        let key: String = request_value
+                            .to_member("key")?
+                            .required()?
+                            .try_into()?; // TODO: dont use String
                         let value = self.machine.get(&key);
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
                     }

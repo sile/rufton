@@ -89,13 +89,13 @@ fn handle_command(
     sock: &mut Socket,
     machine: &mut KvsMachine,
     is_proposed: bool,
-    command: JsonLineValue,
+    request: JsonLineValue,
 ) -> Result<()> {
-    let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
-    let method: &str = v.to_member("method")?.required()?.try_into()?;
-    let params = v.to_member("params")?.required()?;
-    let id: u64 = v.to_member("id")?.required()?.try_into()?;
-    let src: SocketAddr = v.to_member("src")?.required()?.try_into()?;
+    let request_value = request.get();
+    let method: &str = request_value.to_member("method")?.required()?.try_into()?;
+    let params = request_value.to_member("params")?.required()?;
+    let id: u64 = request_value.to_member("id")?.required()?.try_into()?;
+    let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
 
     let result = apply(machine, method, params)?;
     if is_proposed {
