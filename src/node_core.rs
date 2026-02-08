@@ -10,7 +10,10 @@ pub struct Node {
     pub initialized: bool,
     pub local_command_seqno: u64,
     pub applied_index: noraft::LogIndex,
-    pub pending_queries: std::collections::BTreeSet<(noraft::LogPosition, ProposalId)>,
+    pub pending_queries: std::collections::BTreeMap<
+        (noraft::LogPosition, ProposalId),
+        JsonLineValue,
+    >,
 }
 
 impl Node {
@@ -27,7 +30,7 @@ impl Node {
             initialized: false,
             local_command_seqno: 0,
             applied_index: noraft::LogIndex::ZERO,
-            pending_queries: std::collections::BTreeSet::new(),
+            pending_queries: std::collections::BTreeMap::new(),
         }
     }
 
@@ -116,11 +119,11 @@ impl Node {
         self.recent_commands.insert(position.index, command);
     }
 
-    pub fn propose_command(&mut self, command: JsonLineValue) -> ProposalId {
+    pub fn propose_command(&mut self, request: JsonLineValue) -> ProposalId {
         let proposal_id = self.next_proposal_id();
         let command = Command::Apply {
             proposal_id,
-            command,
+            command: request,
         };
         self.propose(command);
         proposal_id
@@ -148,19 +151,24 @@ impl Node {
         position
     }
 
-    pub fn propose_query(&mut self) -> ProposalId {
+    pub fn propose_query(&mut self, request: JsonLineValue) -> ProposalId {
         let proposal_id = self.next_proposal_id();
-        self.propose_query_inner(proposal_id);
+        self.propose_query_inner(proposal_id, request);
         proposal_id
     }
 
-    fn propose_query_inner(&mut self, proposal_id: ProposalId) {
+    fn propose_query_inner(&mut self, proposal_id: ProposalId, request: JsonLineValue) {
         if self.inner.role().is_leader() {
             let position = self.leader_query_position();
-            self.pending_queries.insert((position, proposal_id));
+            self.pending_queries
+                .insert((position, proposal_id), request);
         } else if let Some(maybe_leader_id) = self.leader_id() {
             let from = self.id();
-            let query_message = QueryMessage::Redirect { from, proposal_id };
+            let query_message = QueryMessage::Redirect {
+                from,
+                proposal_id,
+                request,
+            };
             let message = JsonLineValue::new_internal(query_message);
             self.push_action(Action::SendMessage(maybe_leader_id, message));
         } else {
@@ -169,17 +177,27 @@ impl Node {
     }
 
     // TODO: refactor
-    fn propose_query_for_redirect(&mut self, from: noraft::NodeId, proposal_id: ProposalId) {
+    fn propose_query_for_redirect(
+        &mut self,
+        from: noraft::NodeId,
+        proposal_id: ProposalId,
+        request: JsonLineValue,
+    ) {
         if self.inner.role().is_leader() {
             let position = self.leader_query_position();
             let query_message = QueryMessage::Proposed {
                 proposal_id,
                 position,
+                request,
             };
             let message = JsonLineValue::new_internal(query_message);
             self.push_action(Action::SendMessage(from, message));
         } else if let Some(maybe_leader_id) = self.leader_id() {
-            let query_message = QueryMessage::Redirect { from, proposal_id };
+            let query_message = QueryMessage::Redirect {
+                from,
+                proposal_id,
+                request,
+            };
             let message = JsonLineValue::new_internal(query_message);
             self.push_action(Action::SendMessage(maybe_leader_id, message));
         }
@@ -251,14 +269,20 @@ impl Node {
     fn handle_query_message(&mut self, message_value: &JsonLineValue) -> bool {
         if let Ok(message) = QueryMessage::try_from(message_value.get()) {
             match message {
-                QueryMessage::Redirect { from, proposal_id } => {
-                    self.propose_query_for_redirect(from, proposal_id);
+                QueryMessage::Redirect {
+                    from,
+                    proposal_id,
+                    request,
+                } => {
+                    self.propose_query_for_redirect(from, proposal_id, request);
                 }
                 QueryMessage::Proposed {
                     proposal_id,
                     position,
+                    request,
                 } => {
-                    self.pending_queries.insert((position, proposal_id));
+                    self.pending_queries
+                        .insert((position, proposal_id), request);
                 }
             }
             true
@@ -345,7 +369,7 @@ impl Node {
 
             let proposal_id = command.get_optional_member("proposal_id").expect("bug");
 
-            let command = match command.get_member::<String>("type").expect("bug").as_str() {
+            let request = match command.get_member::<String>("type").expect("bug").as_str() {
                 "Apply" => command,
                 "Query" => continue,
                 ty => panic!("bug: {ty}"),
@@ -354,23 +378,46 @@ impl Node {
             self.push_action(Action::Apply {
                 index,
                 proposal_id,
-                command,
+                request,
             });
         }
         self.applied_index = self.inner.commit_index();
     }
 
     fn emit_query_actions(&mut self) {
-        while let Some(&(position, proposal_id)) = self.pending_queries.first() {
+        while let Some((&(position, _), _)) = self.pending_queries.first_key_value() {
             let status = self.inner.get_commit_status(position);
             match status {
                 noraft::CommitStatus::InProgress => break,
                 noraft::CommitStatus::Rejected | noraft::CommitStatus::Unknown => {
-                    self.pending_queries.pop_first();
+                    let keys: Vec<_> = self
+                        .pending_queries
+                        .keys()
+                        .take_while(|(pos, _)| *pos == position)
+                        .cloned()
+                        .collect();
+                    for key in keys {
+                        self.pending_queries.remove(&key);
+                    }
                 }
                 noraft::CommitStatus::Committed => {
-                    self.pending_queries.pop_first();
-                    self.push_action(Action::Query { proposal_id });
+                    let keys: Vec<_> = self
+                        .pending_queries
+                        .keys()
+                        .take_while(|(pos, _)| *pos == position)
+                        .cloned()
+                        .collect();
+                    for (position, proposal_id) in keys {
+                        let request = self
+                            .pending_queries
+                            .remove(&(position, proposal_id))
+                            .expect("pending_queries should have entry");
+                        self.push_action(Action::Apply {
+                            proposal_id: Some(proposal_id),
+                            index: position.index,
+                            request,
+                        });
+                    }
                 }
             }
         }

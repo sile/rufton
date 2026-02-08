@@ -96,29 +96,38 @@ pub enum QueryMessage {
     Redirect {
         from: noraft::NodeId,
         proposal_id: ProposalId,
+        request: JsonLineValue,
     },
     Proposed {
         proposal_id: ProposalId,
         position: noraft::LogPosition,
+        request: JsonLineValue,
     },
 }
 
 impl nojson::DisplayJson for QueryMessage {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         match self {
-            QueryMessage::Redirect { from, proposal_id } => f.object(|f| {
+            QueryMessage::Redirect {
+                from,
+                proposal_id,
+                request,
+            } => f.object(|f| {
                 f.member("type", "Redirect")?;
                 f.member("from", from.get())?;
-                f.member("proposal_id", proposal_id)
+                f.member("proposal_id", proposal_id)?;
+                f.member("request", request)
             }),
             QueryMessage::Proposed {
                 proposal_id,
                 position,
+                request,
             } => f.object(|f| {
                 f.member("type", "Proposed")?;
                 f.member("proposal_id", proposal_id)?;
                 f.member("term", position.term.get())?;
-                f.member("index", position.index.get())
+                f.member("index", position.index.get())?;
+                f.member("request", request)
             }),
         }
     }
@@ -136,9 +145,12 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
             "Redirect" => {
                 let from: u64 = value.to_member("from")?.required()?.try_into()?;
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
+                let request_json = value.to_member("request")?.required()?;
+                let request = JsonLineValue::new_internal(request_json);
                 Ok(QueryMessage::Redirect {
                     from: noraft::NodeId::new(from),
                     proposal_id,
+                    request,
                 })
             }
             "Proposed" => {
@@ -146,9 +158,12 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
                 let term = noraft::Term::new(value.to_member("term")?.required()?.try_into()?);
                 let index =
                     noraft::LogIndex::new(value.to_member("index")?.required()?.try_into()?);
+                let request_json = value.to_member("request")?.required()?;
+                let request = JsonLineValue::new_internal(request_json);
                 Ok(QueryMessage::Proposed {
                     proposal_id,
                     position: noraft::LogPosition { term, index },
+                    request,
                 })
             }
             ty => Err(value.invalid(format!("unknown query message type: {ty}"))),
@@ -216,10 +231,7 @@ pub enum Action {
     Apply {
         proposal_id: Option<ProposalId>,
         index: noraft::LogIndex,
-        command: JsonLineValue,
-    },
-    Query {
-        proposal_id: ProposalId,
+        request: JsonLineValue,
     },
 }
 

@@ -138,8 +138,8 @@ fn create_snapshot_includes_log_entries_suffix() {
         .expect("leader should exist");
     let follower_index = 1 - leader_index;
 
-    let command = JsonLineValue::new_internal("snapshot_test");
-    let _proposal_id = nodes[leader_index].propose_command(command);
+    let request = JsonLineValue::new_internal("snapshot_test");
+    let _proposal_id = nodes[leader_index].propose_command(request);
 
     while let Some(action) = nodes[leader_index].next_action() {
         if let Action::BroadcastMessage(m) = action {
@@ -258,8 +258,8 @@ fn propose_command_to_non_leader_node() {
     let follower_index = 1 - leader_index;
 
     // Try to propose a command to the non-leader
-    let command = JsonLineValue::new_internal("test_command");
-    let proposal_id = nodes[follower_index].propose_command(command);
+    let request = JsonLineValue::new_internal("test_command");
+    let proposal_id = nodes[follower_index].propose_command(request);
 
     let actions = run_actions(&mut nodes);
     // Check that actions contain an Apply with the matching proposal_id
@@ -301,21 +301,29 @@ fn propose_query() {
         .expect("leader should exist");
 
     // Propose a query on the leader
-    let query_proposal_id = nodes[leader_index].propose_query();
+    let request = JsonLineValue::new_internal("test_query");
+    let query_proposal_id = nodes[leader_index].propose_query(request.clone());
 
     let actions = run_actions(&mut nodes);
 
-    // Check that a Query action was generated with the matching proposal_id
-    let found_query = actions.iter().any(|(node_id, action)| {
-        if let Action::Query { proposal_id } = action {
-            *node_id == nodes[leader_index].id() && *proposal_id == query_proposal_id
+    // Check that an Apply action was generated with the matching proposal_id and request
+    let found_apply = actions.iter().any(|(node_id, action)| {
+        if let Action::Apply {
+            proposal_id,
+            request: action_request,
+            ..
+        } = action
+        {
+            *node_id == nodes[leader_index].id()
+                && *proposal_id == Some(query_proposal_id)
+                && *action_request == request
         } else {
             false
         }
     });
     assert!(
-        found_query,
-        "Query action with matching proposal_id should be returned by leader"
+        found_apply,
+        "Apply action with matching proposal_id should be returned by leader"
     );
 
 }
@@ -340,20 +348,28 @@ fn propose_query_on_non_leader_node() {
     let follower_index = 1 - leader_index;
 
     // Propose a query on the non-leader
-    let query_proposal_id = nodes[follower_index].propose_query();
+    let request = JsonLineValue::new_internal("test_query");
+    let query_proposal_id = nodes[follower_index].propose_query(request.clone());
 
     let actions = run_actions(&mut nodes);
 
     // Check that the query was redirected to the leader and eventually resolved
-    let found_query = actions.iter().any(|(node_id, action)| {
-        if let Action::Query { proposal_id } = action {
-            *node_id == nodes[follower_index].id() && *proposal_id == query_proposal_id
+    let found_apply = actions.iter().any(|(node_id, action)| {
+        if let Action::Apply {
+            proposal_id,
+            request: action_request,
+            ..
+        } = action
+        {
+            *node_id == nodes[follower_index].id()
+                && *proposal_id == Some(query_proposal_id)
+                && *action_request == request
         } else {
             false
         }
     });
     assert!(
-        found_query,
+        found_apply,
         "Query should be redirected to leader and resolved"
     );
 }
@@ -367,12 +383,12 @@ fn strip_memory_log() {
     while node0.next_action().is_some() {}
 
     // Propose and commit some commands
-    let command1 = JsonLineValue::new_internal("command1");
-    let _proposal_id1 = node0.propose_command(command1);
+    let request1 = JsonLineValue::new_internal("command1");
+    let _proposal_id1 = node0.propose_command(request1);
     while node0.next_action().is_some() {}
 
-    let command2 = JsonLineValue::new_internal("command2");
-    let _proposal_id2 = node0.propose_command(command2);
+    let request2 = JsonLineValue::new_internal("command2");
+    let _proposal_id2 = node0.propose_command(request2);
     while node0.next_action().is_some() {}
 
     // Get the current commit index before stripping

@@ -34,11 +34,11 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
                 rufton::Action::SendMessage(dst, msg) => send_message(&mut sock, dst, msg)?,
                 rufton::Action::Apply {
                     proposal_id,
-                    command,
+                    request,
                     ..
                 } => {
                     // TODO: call apply() here
-                    handle_command(&mut sock, &mut machine, proposal_id.is_some(), command)?;
+                    handle_command(&mut sock, &mut machine, proposal_id.is_some(), request)?;
                 }
                 rufton::Action::SetTimeout(_) | rufton::Action::AppendStorageEntry(_) => {}
                 a => todo!("{a:?}"),

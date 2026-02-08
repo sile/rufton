@@ -163,11 +163,11 @@ fn drain_actions(
             rufton::Action::Apply {
                 proposal_id,
                 index,
-                command,
+                request,
             } => {
                 eprintln!("Apply: {} ({:?})", index.get(), proposal_id);
 
-                let v = command.get().to_member("command")?.required()?; // TODO: Remove this call
+                let v = request.get().to_member("command")?.required()?; // TODO: Remove this call
                 let ty = v.to_member("type")?.required()?.as_string_str()?;
                 let result = match ty {
                     "put" => {
@@ -189,8 +189,7 @@ fn drain_actions(
                     send_response(socket, client_addr, &req_id, result)?;
                 }
             }
-            rufton::Action::Query { .. } => unreachable!(), // TODO: Merge Query with Apply
-                                                            // TODO: Add NotifyEvent
+            // TODO: Add NotifyEvent
         }
     }
     Ok(())

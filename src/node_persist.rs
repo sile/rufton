@@ -234,7 +234,7 @@ impl Node {
         self.recent_commands = state.recent_commands;
         self.applied_index = state.applied_index;
         self.initialized = !state.config.voters.is_empty() || !state.config.new_voters.is_empty();
-        self.pending_queries = std::collections::BTreeSet::new();
+        self.pending_queries = std::collections::BTreeMap::new();
         self.local_command_seqno = 0;
 
         let entry = StorageEntry::NodeGeneration(new_generation);
