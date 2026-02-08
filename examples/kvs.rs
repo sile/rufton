@@ -106,7 +106,8 @@ impl Kvs {
                     f.member("id", req_id.clone())?;
                     f.member("src", src_addr)
                 });
-                self.node.propose_command(rufton::JsonLineValue::new(request));
+                self.node
+                    .propose_command(rufton::JsonLineValue::new(request));
             } else {
                 assert_eq!(req.method(), "Internal");
                 let params = req.params().expect("bug");
@@ -156,10 +157,7 @@ impl Kvs {
                     .as_string_str()?;
                 let result = match ty {
                     "put" => {
-                        let key = command_value
-                            .to_member("key")?
-                            .required()?
-                            .try_into()?;
+                        let key = command_value.to_member("key")?.required()?.try_into()?;
                         let value = command_value
                             .to_member("value")?
                             .required()?
@@ -169,10 +167,7 @@ impl Kvs {
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
                     }
                     "get" => {
-                        let key: String = command_value
-                            .to_member("key")?
-                            .required()?
-                            .try_into()?; // TODO: dont use String
+                        let key: String = command_value.to_member("key")?.required()?.try_into()?; // TODO: dont use String
                         let value = self.machine.get(&key);
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
                     }
@@ -184,8 +179,7 @@ impl Kvs {
                     let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
                     self.send_response(src, &req_id, result)?;
                 }
-            }
-            // TODO: Add NotifyEvent
+            } // TODO: Add NotifyEvent
         }
         Ok(())
     }

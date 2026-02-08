@@ -2,7 +2,7 @@
 mod node_persist;
 
 use crate::node_types::{
-    Action, Command, JsonLineValue, QueryMessage, RecentCommands, ProposalId, StorageEntry,
+    Action, Command, JsonLineValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
 };
 
 #[derive(Debug, Clone)]
@@ -13,10 +13,8 @@ pub struct Node {
     pub(crate) initialized: bool,
     pub(crate) local_command_seqno: u64,
     pub(crate) applied_index: noraft::LogIndex,
-    pub(crate) pending_queries: std::collections::BTreeMap<
-        (noraft::LogPosition, ProposalId),
-        JsonLineValue,
-    >,
+    pub(crate) pending_queries:
+        std::collections::BTreeMap<(noraft::LogPosition, ProposalId), JsonLineValue>,
 }
 
 impl Node {

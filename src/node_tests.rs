@@ -265,10 +265,7 @@ fn propose_command_to_non_leader_node() {
     // Check that actions contain an Apply from the proposer
     let found_apply = actions.iter().any(|(node_id, action)| {
         dbg!(node_id, action);
-        if let Action::Apply {
-            is_proposer,
-            ..
-        } = action
+        if let Action::Apply { is_proposer, .. } = action
             && *is_proposer
         {
             dbg!(node_id, action);
@@ -315,9 +312,7 @@ fn propose_query() {
             ..
         } = action
         {
-            *node_id == nodes[leader_index].id()
-                && *is_proposer
-                && *action_request == request
+            *node_id == nodes[leader_index].id() && *is_proposer && *action_request == request
         } else {
             false
         }
@@ -326,7 +321,6 @@ fn propose_query() {
         found_apply,
         "Apply action with matching request should be returned by leader"
     );
-
 }
 
 #[test]
@@ -362,9 +356,7 @@ fn propose_query_on_non_leader_node() {
             ..
         } = action
         {
-            *node_id == nodes[follower_index].id()
-                && *is_proposer
-                && *action_request == request
+            *node_id == nodes[follower_index].id() && *is_proposer && *action_request == request
         } else {
             false
         }

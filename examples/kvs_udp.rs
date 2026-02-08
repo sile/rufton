@@ -94,7 +94,13 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
             node.handle_timeout();
         }
 
-        drain_actions(&socket, &mut storage, &mut node, &mut machine, &mut timeout_time)?;
+        drain_actions(
+            &socket,
+            &mut storage,
+            &mut node,
+            &mut machine,
+            &mut timeout_time,
+        )?;
 
         let timeout = timeout_time.saturating_duration_since(now);
         socket.set_read_timeout(Some(timeout))?;
@@ -171,10 +177,7 @@ fn drain_actions(
                     .as_string_str()?;
                 let result = match ty {
                     "put" => {
-                        let key = command_value
-                            .to_member("key")?
-                            .required()?
-                            .try_into()?;
+                        let key = command_value.to_member("key")?.required()?.try_into()?;
                         let value = command_value
                             .to_member("value")?
                             .required()?
@@ -184,10 +187,7 @@ fn drain_actions(
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("old", &old)))
                     }
                     "get" => {
-                        let key: String = command_value
-                            .to_member("key")?
-                            .required()?
-                            .try_into()?; // TODO: dont use String
+                        let key: String = command_value.to_member("key")?.required()?.try_into()?; // TODO: dont use String
                         let value = machine.get(&key);
                         rufton::JsonLineValue::new(nojson::object(|f| f.member("value", value)))
                     }
@@ -199,8 +199,7 @@ fn drain_actions(
                     let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
                     send_response(socket, src, &req_id, result)?;
                 }
-            }
-            // TODO: Add NotifyEvent
+            } // TODO: Add NotifyEvent
         }
     }
     Ok(())
