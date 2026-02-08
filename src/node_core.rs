@@ -120,7 +120,8 @@ impl Node {
         self.recent_commands.insert(position.index, command);
     }
 
-    pub fn propose_command(&mut self, request: JsonValue) {
+    pub fn propose_command<T: nojson::DisplayJson>(&mut self, request: T) {
+        let request = JsonValue::new(request);
         let proposal_id = self.next_proposal_id();
         let command = Command::Apply {
             proposal_id,
@@ -151,7 +152,8 @@ impl Node {
         position
     }
 
-    pub fn propose_query(&mut self, request: JsonValue) {
+    pub fn propose_query<T: nojson::DisplayJson>(&mut self, request: T) {
+        let request = JsonValue::new(request);
         let proposal_id = self.next_proposal_id();
         self.propose_query_inner(proposal_id, request);
     }

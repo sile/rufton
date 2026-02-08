@@ -122,7 +122,7 @@ fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> no
                 f.member("id", req_id.clone())?;
                 f.member("src", src_addr)
             });
-            node.propose_command(rufton::JsonValue::new(request));
+            node.propose_command(request);
         } else {
             assert_eq!(req.method(), "Internal");
             let params = req.params().expect("bug");

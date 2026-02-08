@@ -106,7 +106,7 @@ impl Kvs {
                     f.member("id", req_id.clone())?;
                     f.member("src", src_addr)
                 });
-                self.node.propose_command(rufton::JsonValue::new(request));
+                self.node.propose_command(request);
             } else {
                 assert_eq!(req.method(), "Internal");
                 let params = req.params().expect("bug");
