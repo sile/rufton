@@ -27,7 +27,7 @@ pub fn main() -> noargs::Result<()> {
 }
 
 fn send_response_ok<T: nojson::DisplayJson>(
-    socket: &mut rufton::LineFramedTcpSocket,
+    socket: &mut std::net::UdpSocket,
     dst: SocketAddr,
     request_id: &rufton::JsonRpcRequestId,
     result: T,
@@ -44,7 +44,7 @@ fn send_response_ok<T: nojson::DisplayJson>(
 }
 
 fn send_response_err(
-    socket: &mut rufton::LineFramedTcpSocket,
+    socket: &mut std::net::UdpSocket,
     dst: SocketAddr,
     request_id: Option<&rufton::JsonRpcRequestId>,
     code: i32,
@@ -63,7 +63,7 @@ fn send_response_err(
 
 fn run_server(listen_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let socket_addr: std::net::SocketAddr = listen_addr.parse()?;
-    let mut socket = rufton::LineFramedTcpSocket::bind(socket_addr)?;
+    let mut socket = std::net::UdpSocket::bind(socket_addr)?;
     eprintln!("Echo server listening on {}", listen_addr);
 
     let mut buf = [0u8; 65535];

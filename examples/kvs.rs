@@ -34,7 +34,7 @@ fn addr(id: noraft::NodeId) -> SocketAddr {
 }
 
 struct Kvs {
-    socket: rufton::LineFramedTcpSocket,
+    socket: std::net::UdpSocket,
     node: rufton::Node,
     machine: std::collections::HashMap<String, nojson::RawJsonOwned>,
     storage: rufton::FileStorage,
@@ -47,7 +47,7 @@ impl Kvs {
         node_id: noraft::NodeId,
         init_node_ids: Option<Vec<noraft::NodeId>>,
     ) -> noargs::Result<Self> {
-        let socket = rufton::LineFramedTcpSocket::bind(addr(node_id))?;
+        let socket = std::net::UdpSocket::bind(addr(node_id))?;
         eprintln!("Started node {}", node_id.get());
 
         let mut node = rufton::Node::start(node_id);

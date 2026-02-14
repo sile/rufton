@@ -4,7 +4,7 @@ use noraft::NodeId;
 use rufton::{JsonValue, Node, Result};
 
 type KvsMachine = std::collections::HashMap<String, usize>;
-type Socket = std::net::UdpSocket; // rufton::LineFramedTcpSocket;
+type Socket = std::net::UdpSocket;
 
 pub fn main() -> rufton::Result<()> {
     let Some(arg) = std::env::args().nth(1) else {
