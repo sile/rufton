@@ -1,7 +1,6 @@
 mod error;
 mod node_core;
 mod node_types;
-pub mod tcp;
 
 pub mod conv; // TODO: private
 pub mod jsonrpc;
@@ -13,7 +12,6 @@ pub use crate::jsonrpc::{
 };
 pub use crate::node::{Action, Event, JsonValue, Node, RecentCommands, StorageEntry};
 pub use crate::storage::FileStorage;
-pub use crate::tcp::LineFramedTcpSocket;
 pub use error::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;

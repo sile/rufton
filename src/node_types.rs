@@ -237,8 +237,13 @@ pub enum Action {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    RoleChanged { from: noraft::Role, to: noraft::Role },
-    BecameLeader { term: noraft::Term },
+    RoleChanged {
+        from: noraft::Role,
+        to: noraft::Role,
+    },
+    BecameLeader {
+        term: noraft::Term,
+    },
 }
 
 impl std::fmt::Display for Event {
@@ -253,7 +258,12 @@ impl std::fmt::Display for Event {
 
         match self {
             Event::RoleChanged { from, to } => {
-                write!(f, "role changed: {} -> {}", role_label(*from), role_label(*to))
+                write!(
+                    f,
+                    "role changed: {} -> {}",
+                    role_label(*from),
+                    role_label(*to)
+                )
             }
             Event::BecameLeader { term } => write!(f, "became leader (term={})", term.get()),
         }

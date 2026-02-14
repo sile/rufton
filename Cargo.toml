@@ -10,7 +10,6 @@ repository = "https://github.com/sile/rufton"
 readme = "README.md"
 
 [dependencies]
-mio = { version = "1.1.1", default-features=false, features = ["os-poll", "net"] }
 nojson = "0.3.6"
 noraft = "0.3.0"
 
