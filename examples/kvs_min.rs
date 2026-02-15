@@ -2,7 +2,8 @@ use std::net::SocketAddr;
 
 use rufton::{JsonValue, Node, NodeId, Result};
 
-type KvsMachine = std::collections::HashMap<String, usize>;
+mod kvs;
+
 type Socket = std::net::UdpSocket;
 
 pub fn main() -> rufton::Result<()> {
@@ -16,7 +17,7 @@ pub fn main() -> rufton::Result<()> {
 
 fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
     let mut sock = Socket::bind(addr)?;
-    let mut machine = KvsMachine::new();
+    let mut machine = kvs::Machine::new();
 
     let node_id = NodeId::from_localhost_port(addr.port());
     let mut node = rufton::Node::start(node_id);
@@ -85,11 +86,11 @@ fn send_message(sock: &mut Socket, dst: NodeId, msg: JsonValue) -> Result<()> {
 
 fn handle_request(
     sock: &mut Socket,
-    machine: &mut KvsMachine,
+    machine: &mut kvs::Machine,
     is_proposed: bool,
     request: nojson::RawJsonValue,
 ) -> Result<()> {
-    let result = apply(machine, request)?;
+    let result = kvs::apply(machine, request)?;
     if is_proposed {
         let id: u64 = request.to_member("id")?.required()?.try_into()?;
         let src: SocketAddr = request.to_member("src")?.required()?.try_into()?;
@@ -97,23 +98,4 @@ fn handle_request(
         sock.send_to(res.as_bytes(), src)?;
     }
     Ok(())
-}
-
-fn apply(machine: &mut KvsMachine, request: nojson::RawJsonValue) -> Result<String> {
-    let method: &str = request.to_member("method")?.required()?.try_into()?;
-    let params = request.to_member("params")?.required()?;
-    match method {
-        "put" => {
-            let key: String = params.to_member("key")?.required()?.try_into()?;
-            let value: usize = params.to_member("value")?.required()?.try_into()?;
-            let old = machine.insert(key, value);
-            Ok(nojson::object(|f| f.member("old", old)).to_string())
-        }
-        "get" => {
-            let key: &str = params.to_member("key")?.required()?.try_into()?;
-            let value = machine.get(key);
-            Ok(nojson::object(|f| f.member("value", value)).to_string())
-        }
-        _ => Err(rufton::Error::new("unknown method")),
-    }
 }

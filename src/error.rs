@@ -56,3 +56,9 @@ impl From<nojson::JsonParseError> for Error {
         Self::new(err.to_string())
     }
 }
+
+impl From<String> for Error {
+    fn from(err: String) -> Self {
+        Self::new(err)
+    }
+}
