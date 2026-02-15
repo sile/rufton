@@ -11,7 +11,7 @@ readme = "README.md"
 
 [dependencies]
 nojson = "0.3.6"
-noraft = "0.3.0"
+noraft = "0.4.0"
 
 [dev-dependencies]
 noargs = "0.4.2"
