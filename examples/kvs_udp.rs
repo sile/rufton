@@ -122,10 +122,9 @@ fn run_node(node_id: rufton::NodeId, contact_node: Option<rufton::NodeId>) -> no
             let params = req.params().expect("bug");
             let request = nojson::object(|f| {
                 f.member("params", params)?;
-                f.member("id", req_id.clone())?;
-                f.member("src", src_addr)
+                f.member("id", req_id.clone())
             });
-            node.propose_command(request);
+            node.propose_command(src_addr, request);
         } else {
             assert_eq!(req.method(), "Internal");
             let params = req.params().expect("bug");
@@ -164,6 +163,7 @@ fn drain_actions(
             rufton::Action::Apply {
                 is_proposer,
                 index,
+                source,
                 request,
             } => {
                 eprintln!("Apply: {} (is_proposer={})", index.get(), is_proposer);
@@ -199,7 +199,7 @@ fn drain_actions(
                 if is_proposer {
                     let req_id: rufton::JsonRpcRequestId =
                         request_value.to_member("id")?.required()?.try_into()?;
-                    let src: SocketAddr = request_value.to_member("src")?.required()?.try_into()?;
+                    let src: SocketAddr = source.get().try_into()?;
                     send_response(socket, src, &req_id, result)?;
                 }
             }

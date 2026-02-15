@@ -243,6 +243,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
 pub(crate) enum Command {
     Apply {
         proposal_id: ProposalId,
+        source: JsonValue,
         command: JsonValue,
     },
     Query,
@@ -253,10 +254,12 @@ impl nojson::DisplayJson for Command {
         match self {
             Command::Apply {
                 proposal_id,
+                source,
                 command,
             } => f.object(|f| {
                 f.member("type", "Apply")?;
                 f.member("proposal_id", proposal_id)?;
+                f.member("source", source)?;
                 f.member("command", command)
             }),
             Command::Query => f.object(|f| f.member("type", "Query")),
@@ -275,10 +278,13 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
         match ty.as_ref() {
             "Apply" => {
                 let proposal_id = value.to_member("proposal_id")?.required()?.try_into()?;
+                let source_json = value.to_member("source")?.required()?;
+                let source = JsonValue::new(source_json);
                 let command_json = value.to_member("command")?.required()?;
                 let command = JsonValue::new(command_json);
                 Ok(Command::Apply {
                     proposal_id,
+                    source,
                     command,
                 })
             }
@@ -299,6 +305,7 @@ pub enum Action {
     Apply {
         is_proposer: bool,
         index: noraft::LogIndex,
+        source: JsonValue,
         request: JsonValue,
     },
 }

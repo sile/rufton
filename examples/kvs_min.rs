@@ -32,19 +32,11 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
         let request = json.value();
 
         let method: &str = request.to_member("method")?.required()?.try_into()?;
-        let params = request.to_member("params")?.required()?;
-
         if method == "_" {
+            let params = request.to_member("params")?.required()?;
             node.handle_message(params);
         } else {
-            let id: u64 = request.to_member("id")?.required()?.try_into()?;
-            let command = nojson::object(|f| {
-                f.member("method", method)?;
-                f.member("params", params)?;
-                f.member("id", id)?;
-                f.member("src", src_addr)
-            });
-            node.propose_command(command);
+            node.propose_command(src_addr, request);
         }
     }
 }
@@ -69,12 +61,12 @@ fn handle_action(
         rufton::Action::Apply {
             is_proposer,
             request,
+            source,
             ..
         } => {
             let result = kvs::apply(machine, request.get());
             if is_proposer {
-                let src = request.get().to_member("src")?.required()?.try_into()?;
-                kvs::send_response(sock, request.get(), result, src)?;
+                kvs::send_response(sock, request.get(), result, source.get().try_into()?)?;
             }
         }
         rufton::Action::NotifyEvent(event) => {

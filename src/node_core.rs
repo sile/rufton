@@ -126,11 +126,17 @@ impl Node {
         self.recent_commands.insert(position.index, command);
     }
 
-    pub fn propose_command<T: nojson::DisplayJson>(&mut self, request: T) {
+    pub fn propose_command<S: nojson::DisplayJson, T: nojson::DisplayJson>(
+        &mut self,
+        source: S,
+        request: T,
+    ) {
+        let source = JsonValue::new(source);
         let request = JsonValue::new(request);
         let proposal_id = self.next_proposal_id();
         let command = Command::Apply {
             proposal_id,
+            source,
             command: request,
         };
         self.propose(command);
@@ -406,22 +412,29 @@ impl Node {
                 .map(|id| id.is_proposer(self.id(), self.inner.generation().get()))
                 .unwrap_or(false);
 
-            let request = match command.get_member::<String>("type").expect("bug").as_str() {
-                "Apply" => {
-                    let request_value = command
-                        .get()
-                        .to_member("command")
-                        .and_then(|value| value.required())
-                        .expect("bug");
-                    JsonValue::new(request_value)
-                }
-                "Query" => continue,
-                ty => panic!("bug: {ty}"),
-            };
+            let (source, request) =
+                match command.get_member::<String>("type").expect("bug").as_str() {
+                    "Apply" => {
+                        let source_value = command
+                            .get()
+                            .to_member("source")
+                            .and_then(|value| value.required())
+                            .expect("bug");
+                        let request_value = command
+                            .get()
+                            .to_member("command")
+                            .and_then(|value| value.required())
+                            .expect("bug");
+                        (JsonValue::new(source_value), JsonValue::new(request_value))
+                    }
+                    "Query" => continue,
+                    ty => panic!("bug: {ty}"),
+                };
 
             self.push_action(Action::Apply {
                 is_proposer,
                 index,
+                source,
                 request,
             });
         }
@@ -459,6 +472,7 @@ impl Node {
                         self.push_action(Action::Apply {
                             is_proposer: true,
                             index: position.index,
+                            source: JsonValue::new(self.id()),
                             request,
                         });
                     }
