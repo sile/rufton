@@ -1,10 +1,6 @@
-use std::net::SocketAddr;
-
 use rufton::{JsonValue, Node, NodeId, Result};
 
 mod kvs;
-
-type Socket = std::net::UdpSocket;
 
 pub fn main() -> rufton::Result<()> {
     let Some(arg) = std::env::args().nth(1) else {
@@ -16,10 +12,10 @@ pub fn main() -> rufton::Result<()> {
 }
 
 fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
-    let mut sock = Socket::bind(addr)?;
+    let mut sock = std::net::UdpSocket::bind(addr)?;
     let mut machine = kvs::Machine::new();
 
-    let node_id = NodeId::from_localhost_port(addr.port());
+    let node_id = NodeId::new(addr.port() as u64);
     let mut node = rufton::Node::start(node_id);
     let members = [NodeId::new(9000), NodeId::new(9001), NodeId::new(9002)];
     if node_id == members[0] {
@@ -66,31 +62,29 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
     }
 }
 
-fn broadcast_message(sock: &mut Socket, node: &Node, msg: JsonValue) -> Result<()> {
+fn broadcast_message(sock: &std::net::UdpSocket, node: &Node, msg: JsonValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
     for dst in node.peers() {
-        let addr = dst.to_localhost_addr()?;
-        sock.send_to(req.as_bytes(), addr)?;
+        sock.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
     }
     Ok(())
 }
 
-fn send_message(sock: &mut Socket, dst: NodeId, msg: JsonValue) -> Result<()> {
+fn send_message(sock: &std::net::UdpSocket, dst: NodeId, msg: JsonValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
-    let addr = dst.to_localhost_addr()?;
-    sock.send_to(req.as_bytes(), addr)?;
+    sock.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
     Ok(())
 }
 
 fn handle_request(
-    sock: &mut Socket,
+    sock: &std::net::UdpSocket,
     machine: &mut kvs::Machine,
     is_proposed: bool,
     request: nojson::RawJsonValue,
 ) -> Result<()> {
     let result = kvs::apply(machine, request);
     if is_proposed {
-        let src: SocketAddr = request.to_member("src")?.required()?.try_into()?;
+        let src = request.to_member("src")?.required()?.try_into()?;
         kvs::send_response(sock, request, result, src)?;
     }
     Ok(())
