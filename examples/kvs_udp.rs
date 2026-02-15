@@ -13,19 +13,22 @@ pub fn main() -> noargs::Result<()> {
     let contact_node = noargs::opt("contact")
         .short('c')
         .take(&mut args)
-        .present_and_then(|a| a.value().parse().map(rufton::NodeId::new))?;
+        .present_and_then(|a| a.value().parse().map(rufton::NodeId::from_localhost_port))?;
 
     if let Some(help) = args.finish()? {
         print!("{help}");
         return Ok(());
     }
 
-    run_node(rufton::NodeId::new(port as u64), contact_node)?;
+    run_node(rufton::NodeId::from_localhost_port(port), contact_node)?;
     Ok(())
 }
 
-fn addr(id: rufton::NodeId) -> SocketAddr {
-    ([127, 0, 0, 1], id.get() as u16).into()
+fn addr(id: rufton::NodeId) -> noargs::Result<SocketAddr> {
+    let addr = id
+        .to_localhost_addr()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))?;
+    Ok(addr)
 }
 
 fn send_request<T: nojson::DisplayJson>(
@@ -63,7 +66,7 @@ fn send_response<T: nojson::DisplayJson>(
 }
 
 fn run_node(node_id: rufton::NodeId, contact_node: Option<rufton::NodeId>) -> noargs::Result<()> {
-    let socket = UdpSocket::bind(addr(node_id))?;
+    let socket = UdpSocket::bind(addr(node_id)?)?;
     eprintln!("Started node {}", node_id.get());
 
     let mut node = rufton::Node::start(node_id);
@@ -151,12 +154,12 @@ fn drain_actions(
             rufton::Action::BroadcastMessage(m) => {
                 for dst in node.members() {
                     if dst != node.id() {
-                        send_request(socket, addr(dst), "Internal", &m)?;
+                        send_request(socket, addr(dst)?, "Internal", &m)?;
                     }
                 }
             }
             rufton::Action::SendMessage(dst, m) => {
-                send_request(socket, addr(dst), "Internal", &m)?;
+                send_request(socket, addr(dst)?, "Internal", &m)?;
             }
             rufton::Action::Apply {
                 is_proposer,

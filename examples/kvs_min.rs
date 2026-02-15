@@ -18,7 +18,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
     let mut sock = Socket::bind(addr)?;
     let mut machine = KvsMachine::new();
 
-    let node_id = NodeId::new(addr.port() as u64);
+    let node_id = NodeId::from_localhost_port(addr.port());
     let mut node = rufton::Node::start(node_id);
     let members = [NodeId::new(9000), NodeId::new(9001), NodeId::new(9002)];
     if node_id == members[0] {
@@ -70,7 +70,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
 fn broadcast_message(sock: &mut Socket, node: &Node, msg: JsonValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
     for dst in node.peers() {
-        let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
+        let addr = dst.to_localhost_addr()?;
         sock.send_to(req.as_bytes(), addr)?;
     }
     Ok(())
@@ -78,7 +78,7 @@ fn broadcast_message(sock: &mut Socket, node: &Node, msg: JsonValue) -> Result<(
 
 fn send_message(sock: &mut Socket, dst: NodeId, msg: JsonValue) -> Result<()> {
     let req = format!(r#"{{"jsonrpc":"2.0","method":"_message","params":{msg}}}"#);
-    let addr = SocketAddr::from(([127, 0, 0, 1], dst.get() as u16));
+    let addr = dst.to_localhost_addr()?;
     sock.send_to(req.as_bytes(), addr)?;
     Ok(())
 }

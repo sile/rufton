@@ -25,12 +25,15 @@ pub fn main() -> noargs::Result<()> {
         return Ok(());
     }
 
-    run(rufton::NodeId::new(port as u64), init_node_ids)?;
+    run(rufton::NodeId::from_localhost_port(port), init_node_ids)?;
     Ok(())
 }
 
-fn addr(id: rufton::NodeId) -> SocketAddr {
-    ([127, 0, 0, 1], id.get() as u16).into()
+fn addr(id: rufton::NodeId) -> noargs::Result<SocketAddr> {
+    let addr = id
+        .to_localhost_addr()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))?;
+    Ok(addr)
 }
 
 struct Kvs {
@@ -47,7 +50,7 @@ impl Kvs {
         node_id: rufton::NodeId,
         init_node_ids: Option<Vec<rufton::NodeId>>,
     ) -> noargs::Result<Self> {
-        let socket = std::net::UdpSocket::bind(addr(node_id))?;
+        let socket = std::net::UdpSocket::bind(addr(node_id)?)?;
         eprintln!("Started node {}", node_id.get());
 
         let mut node = rufton::Node::start(node_id);
@@ -128,12 +131,12 @@ impl Kvs {
             rufton::Action::BroadcastMessage(m) => {
                 let peers: Vec<_> = self.node.peers().collect();
                 for dst in peers {
-                    self.send_request(addr(dst), "Internal", &m)?;
+                    self.send_request(addr(dst)?, "Internal", &m)?;
                 }
             }
             rufton::Action::SendMessage(dst, m) => {
                 // TODO: take snapshot if node.recent_commits().len() gets too long
-                self.send_request(addr(dst), "Internal", &m)?;
+                self.send_request(addr(dst)?, "Internal", &m)?;
             }
             rufton::Action::Apply {
                 is_proposer,

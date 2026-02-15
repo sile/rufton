@@ -432,6 +432,7 @@ fn node_id_conversions() {
     let node_id = NodeId::new(42);
     assert_eq!(node_id.get(), 42);
     assert_eq!(node_id.to_string(), "42");
+    assert_eq!(NodeId::from_localhost_port(9000).get(), 9000);
 
     let from_u64: NodeId = 7_u64.into();
     let to_u64: u64 = from_u64.into();
@@ -447,4 +448,23 @@ fn node_id_nojson_roundtrip() {
     let raw = nojson::RawJsonOwned::parse(text).expect("valid JSON");
     let parsed: NodeId = raw.value().try_into().expect("valid node id");
     assert_eq!(parsed, node_id);
+}
+
+#[test]
+fn node_id_to_localhost_addr() {
+    let node_id = NodeId::from_localhost_port(9000);
+    let addr = node_id.to_localhost_addr().expect("valid localhost addr");
+    assert_eq!(addr, "127.0.0.1:9000".parse().expect("valid addr"));
+}
+
+#[test]
+fn node_id_to_localhost_addr_out_of_range() {
+    let node_id = NodeId::new(u64::from(u16::MAX) + 1);
+    let err = node_id
+        .to_localhost_addr()
+        .expect_err("node id out of port range");
+    assert!(
+        err.to_string()
+            .contains("node id 65536 is out of localhost port range")
+    );
 }

@@ -6,8 +6,22 @@ impl NodeId {
         Self(noraft::NodeId::new(node_id))
     }
 
+    pub fn from_localhost_port(port: u16) -> Self {
+        Self::new(u64::from(port))
+    }
+
     pub fn get(self) -> u64 {
         self.0.get()
+    }
+
+    pub fn to_localhost_addr(self) -> crate::Result<std::net::SocketAddr> {
+        let port = u16::try_from(self.get()).map_err(|_| {
+            crate::Error::new(format!(
+                "node id {} is out of localhost port range",
+                self.get()
+            ))
+        })?;
+        Ok(std::net::SocketAddr::from(([127, 0, 0, 1], port)))
     }
 
     pub(crate) fn from_inner(node_id: noraft::NodeId) -> Self {
