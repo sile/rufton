@@ -295,19 +295,22 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyAction {
+    pub is_proposer: bool,
+    pub index: noraft::LogIndex,
+    pub source: JsonValue,
+    pub request: JsonValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     SetTimeout(noraft::Role),
     AppendStorageEntry(JsonValue),
-    BroadcastMessage(JsonValue),
-    SendMessage(NodeId, JsonValue),
+    Broadcast(JsonValue),
+    Send(NodeId, JsonValue),
     SendSnapshot(NodeId),
     NotifyEvent(Event),
-    Apply {
-        is_proposer: bool,
-        index: noraft::LogIndex,
-        source: JsonValue,
-        request: JsonValue,
-    },
+    Apply(ApplyAction),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

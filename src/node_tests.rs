@@ -145,7 +145,7 @@ fn create_snapshot_includes_log_entries_suffix() {
     nodes[leader_index].propose_command(node_id(100), request);
 
     while let Some(action) = nodes[leader_index].next_action() {
-        if let Action::BroadcastMessage(m) = action {
+        if let Action::Broadcast(m) = action {
             assert!(nodes[follower_index].handle_message(m.get()));
             break;
         }
@@ -190,14 +190,14 @@ fn run_actions(nodes: &mut [Node]) -> Vec<(NodeId, Action)> {
                 did_something = true;
                 actions.push((nodes[i].id(), action.clone()));
                 match action {
-                    Action::BroadcastMessage(m) => {
+                    Action::Broadcast(m) => {
                         for j in 0..nodes.len() {
                             if i != j {
                                 assert!(nodes[j].handle_message(m.get()));
                             }
                         }
                     }
-                    Action::SendMessage(j, m) => {
+                    Action::Send(j, m) => {
                         let j = j.get() as usize;
                         assert!(nodes[j].handle_message(m.get()));
                     }
@@ -268,8 +268,8 @@ fn propose_command_to_non_leader_node() {
     // Check that actions contain an Apply from the proposer
     let found_apply = actions.iter().any(|(node_id, action)| {
         dbg!(node_id, action);
-        if let Action::Apply { is_proposer, .. } = action
-            && *is_proposer
+        if let Action::Apply(apply) = action
+            && apply.is_proposer
         {
             dbg!(node_id, action);
             *node_id == nodes[follower_index].id()
@@ -295,16 +295,10 @@ fn propose_command_carries_source() {
 
     let mut found = false;
     while let Some(action) = node.next_action() {
-        if let Action::Apply {
-            is_proposer,
-            request: action_request,
-            source: action_source,
-            ..
-        } = action
-        {
-            assert!(is_proposer);
-            assert_eq!(action_request, request);
-            assert_eq!(action_source, source);
+        if let Action::Apply(apply) = action {
+            assert!(apply.is_proposer);
+            assert_eq!(apply.request, request);
+            assert_eq!(apply.source, source);
             found = true;
             break;
         }
@@ -338,13 +332,8 @@ fn propose_query() {
 
     // Check that an Apply action was generated with the matching request
     let found_apply = actions.iter().any(|(node_id, action)| {
-        if let Action::Apply {
-            is_proposer,
-            request: action_request,
-            ..
-        } = action
-        {
-            *node_id == nodes[leader_index].id() && *is_proposer && *action_request == request
+        if let Action::Apply(apply) = action {
+            *node_id == nodes[leader_index].id() && apply.is_proposer && apply.request == request
         } else {
             false
         }
@@ -382,13 +371,8 @@ fn propose_query_on_non_leader_node() {
 
     // Check that the query was redirected to the leader and eventually resolved
     let found_apply = actions.iter().any(|(node_id, action)| {
-        if let Action::Apply {
-            is_proposer,
-            request: action_request,
-            ..
-        } = action
-        {
-            *node_id == nodes[follower_index].id() && *is_proposer && *action_request == request
+        if let Action::Apply(apply) = action {
+            *node_id == nodes[follower_index].id() && apply.is_proposer && apply.request == request
         } else {
             false
         }

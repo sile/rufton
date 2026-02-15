@@ -48,25 +48,25 @@ fn handle_action(
     action: rufton::Action,
 ) -> Result<()> {
     match action {
-        rufton::Action::BroadcastMessage(msg) => {
+        rufton::Action::Broadcast(msg) => {
             let req = format!(r#"{{"jsonrpc":"2.0","method":"_","params":{msg}}}"#);
             for dst in node.peers() {
                 sock.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
             }
         }
-        rufton::Action::SendMessage(dst, msg) => {
+        rufton::Action::Send(dst, msg) => {
             let req = format!(r#"{{"jsonrpc":"2.0","method":"_","params":{msg}}}"#);
             sock.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
         }
-        rufton::Action::Apply {
-            is_proposer,
-            request,
-            source,
-            ..
-        } => {
-            let result = kvs::apply(machine, request.get());
-            if is_proposer {
-                kvs::send_response(sock, request.get(), result, source.get().try_into()?)?;
+        rufton::Action::Apply(apply) => {
+            let result = kvs::apply(machine, apply.request.get());
+            if apply.is_proposer {
+                kvs::send_response(
+                    sock,
+                    apply.request.get(),
+                    result,
+                    apply.source.get().try_into()?,
+                )?;
             }
         }
         rufton::Action::NotifyEvent(event) => {

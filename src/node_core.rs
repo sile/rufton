@@ -2,8 +2,8 @@
 mod node_persist;
 
 use crate::node_types::{
-    Action, Command, Event, JsonValue, NodeId, ProposalId, QueryMessage, RecentCommands,
-    StorageEntry,
+    Action, ApplyAction, Command, Event, JsonValue, NodeId, ProposalId, QueryMessage,
+    RecentCommands, StorageEntry,
 };
 
 #[derive(Debug, Clone)]
@@ -115,7 +115,7 @@ impl Node {
 
         if !self.inner.role().is_leader() {
             if let Some(maybe_leader) = self.leader_id() {
-                self.push_action(Action::SendMessage(maybe_leader, command));
+                self.push_action(Action::Send(maybe_leader, command));
             } else {
                 // TODO: add missing proposal event
             }
@@ -183,7 +183,7 @@ impl Node {
                 request,
             };
             let message = JsonValue::new(query_message);
-            self.push_action(Action::SendMessage(maybe_leader_id, message));
+            self.push_action(Action::Send(maybe_leader_id, message));
         } else {
             // TODO: add missing proposal event
         }
@@ -204,7 +204,7 @@ impl Node {
                 request,
             };
             let message = JsonValue::new(query_message);
-            self.push_action(Action::SendMessage(from, message));
+            self.push_action(Action::Send(from, message));
         } else if let Some(maybe_leader_id) = self.leader_id() {
             let query_message = QueryMessage::Redirect {
                 from,
@@ -212,7 +212,7 @@ impl Node {
                 request,
             };
             let message = JsonValue::new(query_message);
-            self.push_action(Action::SendMessage(maybe_leader_id, message));
+            self.push_action(Action::Send(maybe_leader_id, message));
         }
     }
 
@@ -375,7 +375,7 @@ impl Node {
                 }
                 noraft::Action::BroadcastMessage(message) => {
                     let value = self.encode_message(&message);
-                    self.push_action(Action::BroadcastMessage(value));
+                    self.push_action(Action::Broadcast(value));
                 }
                 noraft::Action::AppendLogEntries(entries) => {
                     let value = self.encode_log_entries(&entries);
@@ -383,7 +383,7 @@ impl Node {
                 }
                 noraft::Action::SendMessage(node_id, message) => {
                     let message = self.encode_message(&message);
-                    self.push_action(Action::SendMessage(NodeId::from_inner(node_id), message));
+                    self.push_action(Action::Send(NodeId::from_inner(node_id), message));
                 }
                 noraft::Action::InstallSnapshot(dst) => {
                     after_commit_actions.push(Action::SendSnapshot(NodeId::from_inner(dst)));
@@ -431,12 +431,12 @@ impl Node {
                     ty => panic!("bug: {ty}"),
                 };
 
-            self.push_action(Action::Apply {
+            self.push_action(Action::Apply(ApplyAction {
                 is_proposer,
                 index,
                 source,
                 request,
-            });
+            }));
         }
         self.applied_index = self.inner.commit_index();
     }
@@ -469,12 +469,12 @@ impl Node {
                             .pending_queries
                             .remove(&(position, proposal_id))
                             .expect("pending_queries should have entry");
-                        self.push_action(Action::Apply {
+                        self.push_action(Action::Apply(ApplyAction {
                             is_proposer: true,
                             index: position.index,
                             source: JsonValue::new(self.id()),
                             request,
-                        });
+                        }));
                     }
                 }
             }

@@ -150,26 +150,26 @@ fn drain_actions(
             rufton::Action::SetTimeout(role) => {
                 *timeout_time = next_timeout_time(role);
             }
-            rufton::Action::BroadcastMessage(m) => {
+            rufton::Action::Broadcast(m) => {
                 for dst in node.members() {
                     if dst != node.id() {
                         send_request(socket, addr(dst)?, "Internal", &m)?;
                     }
                 }
             }
-            rufton::Action::SendMessage(dst, m) => {
+            rufton::Action::Send(dst, m) => {
                 send_request(socket, addr(dst)?, "Internal", &m)?;
             }
-            rufton::Action::Apply {
-                is_proposer,
-                index,
-                source,
-                request,
-            } => {
-                eprintln!("Apply: {} (is_proposer={})", index.get(), is_proposer);
+            rufton::Action::Apply(apply) => {
+                eprintln!(
+                    "Apply: {} (is_proposer={})",
+                    apply.index.get(),
+                    apply.is_proposer
+                );
 
-                let request_value = request.get();
-                let command_value = request
+                let request_value = apply.request.get();
+                let command_value = apply
+                    .request
                     .get()
                     .to_member("params")
                     .and_then(|value| value.required())
@@ -196,10 +196,10 @@ fn drain_actions(
                     }
                     _ => rufton::JsonValue::new("unknown type"),
                 };
-                if is_proposer {
+                if apply.is_proposer {
                     let req_id: rufton::JsonRpcRequestId =
                         request_value.to_member("id")?.required()?.try_into()?;
-                    let src: SocketAddr = source.get().try_into()?;
+                    let src: SocketAddr = apply.source.get().try_into()?;
                     send_response(socket, src, &req_id, result)?;
                 }
             }
