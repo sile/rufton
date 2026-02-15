@@ -12,7 +12,7 @@ pub fn main() -> rufton::Result<()> {
 }
 
 fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
-    let sock = std::net::UdpSocket::bind(addr)?;
+    let socket = std::net::UdpSocket::bind(addr)?;
     let mut machine = kvs::Machine::new();
 
     let node_id = NodeId::new(addr.port() as u64);
@@ -25,10 +25,10 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
     let mut buf = [0; 65535];
     loop {
         while let Some(action) = node.next_action() {
-            handle_action(&sock, &node, &mut machine, action)?;
+            handle_action(&socket, &node, &mut machine, action)?;
         }
 
-        let (json, src_addr) = kvs::recv_request(&sock, &mut buf)?;
+        let (json, src_addr) = kvs::recv_request(&socket, &mut buf)?;
         let request = json.value();
 
         let method: &str = request.to_member("method")?.required()?.try_into()?;
@@ -42,7 +42,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
 }
 
 fn handle_action(
-    sock: &std::net::UdpSocket,
+    socket: &std::net::UdpSocket,
     node: &Node,
     machine: &mut kvs::Machine,
     action: rufton::Action,
@@ -51,18 +51,18 @@ fn handle_action(
         rufton::Action::Broadcast(msg) => {
             let req = format!(r#"{{"jsonrpc":"2.0","method":"_","params":{msg}}}"#);
             for dst in node.peers() {
-                sock.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
+                socket.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
             }
         }
         rufton::Action::Send(dst, msg) => {
             let req = format!(r#"{{"jsonrpc":"2.0","method":"_","params":{msg}}}"#);
-            sock.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
+            socket.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
         }
         rufton::Action::Apply(apply) => {
             let request = apply.request();
             let result = kvs::apply(machine, request);
             if let Some(source) = apply.source() {
-                kvs::send_response(sock, request, result, source.try_into()?)?;
+                kvs::send_response(socket, request, result, source.try_into()?)?;
             }
         }
         rufton::Action::NotifyEvent(event) => {
