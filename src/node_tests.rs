@@ -269,7 +269,7 @@ fn propose_command_to_non_leader_node() {
     let found_apply = actions.iter().any(|(node_id, action)| {
         dbg!(node_id, action);
         if let Action::Apply(apply) = action
-            && apply.is_proposer
+            && apply.source().is_some()
         {
             dbg!(node_id, action);
             *node_id == nodes[follower_index].id()
@@ -296,9 +296,10 @@ fn propose_command_carries_source() {
     let mut found = false;
     while let Some(action) = node.next_action() {
         if let Action::Apply(apply) = action {
-            assert!(apply.is_proposer);
-            assert_eq!(apply.request, request);
-            assert_eq!(apply.source, source);
+            assert!(apply.source().is_some());
+            assert_eq!(apply.request().as_raw_str(), request.get().as_raw_str());
+            let action_source = apply.source().expect("source should exist");
+            assert_eq!(action_source.as_raw_str(), source.get().as_raw_str());
             found = true;
             break;
         }
@@ -333,7 +334,9 @@ fn propose_query() {
     // Check that an Apply action was generated with the matching request
     let found_apply = actions.iter().any(|(node_id, action)| {
         if let Action::Apply(apply) = action {
-            *node_id == nodes[leader_index].id() && apply.is_proposer && apply.request == request
+            *node_id == nodes[leader_index].id()
+                && apply.source().is_some()
+                && apply.request().as_raw_str() == request.get().as_raw_str()
         } else {
             false
         }
@@ -372,7 +375,9 @@ fn propose_query_on_non_leader_node() {
     // Check that the query was redirected to the leader and eventually resolved
     let found_apply = actions.iter().any(|(node_id, action)| {
         if let Action::Apply(apply) = action {
-            *node_id == nodes[follower_index].id() && apply.is_proposer && apply.request == request
+            *node_id == nodes[follower_index].id()
+                && apply.source().is_some()
+                && apply.request().as_raw_str() == request.get().as_raw_str()
         } else {
             false
         }

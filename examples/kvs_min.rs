@@ -59,14 +59,10 @@ fn handle_action(
             sock.send_to(req.as_bytes(), dst.to_localhost_addr()?)?;
         }
         rufton::Action::Apply(apply) => {
-            let result = kvs::apply(machine, apply.request.get());
-            if apply.is_proposer {
-                kvs::send_response(
-                    sock,
-                    apply.request.get(),
-                    result,
-                    apply.source.get().try_into()?,
-                )?;
+            let request = apply.request();
+            let result = kvs::apply(machine, request);
+            if let Some(source) = apply.source() {
+                kvs::send_response(sock, request, result, source.try_into()?)?;
             }
         }
         rufton::Action::NotifyEvent(event) => {

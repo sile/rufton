@@ -163,14 +163,13 @@ fn drain_actions(
             rufton::Action::Apply(apply) => {
                 eprintln!(
                     "Apply: {} (is_proposer={})",
-                    apply.index.get(),
-                    apply.is_proposer
+                    apply.index().get(),
+                    apply.source().is_some()
                 );
 
-                let request_value = apply.request.get();
+                let request_value = apply.request();
                 let command_value = apply
-                    .request
-                    .get()
+                    .request()
                     .to_member("params")
                     .and_then(|value| value.required())
                     .unwrap_or(request_value);
@@ -196,10 +195,10 @@ fn drain_actions(
                     }
                     _ => rufton::JsonValue::new("unknown type"),
                 };
-                if apply.is_proposer {
+                if let Some(source) = apply.source() {
                     let req_id: rufton::JsonRpcRequestId =
                         request_value.to_member("id")?.required()?.try_into()?;
-                    let src: SocketAddr = apply.source.get().try_into()?;
+                    let src: SocketAddr = source.try_into()?;
                     send_response(socket, src, &req_id, result)?;
                 }
             }

@@ -431,12 +431,12 @@ impl Node {
                     ty => panic!("bug: {ty}"),
                 };
 
-            self.push_action(Action::Apply(ApplyAction {
+            self.push_action(Action::Apply(ApplyAction::new(
                 is_proposer,
                 index,
                 source,
                 request,
-            }));
+            )));
         }
         self.applied_index = self.inner.commit_index();
     }
@@ -469,12 +469,12 @@ impl Node {
                             .pending_queries
                             .remove(&(position, proposal_id))
                             .expect("pending_queries should have entry");
-                        self.push_action(Action::Apply(ApplyAction {
-                            is_proposer: true,
-                            index: position.index,
-                            source: JsonValue::new(self.id()),
+                        self.push_action(Action::Apply(ApplyAction::new(
+                            true,
+                            position.index,
+                            JsonValue::new(self.id()),
                             request,
-                        }));
+                        )));
                     }
                 }
             }

@@ -296,10 +296,38 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for Command {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplyAction {
-    pub is_proposer: bool,
-    pub index: noraft::LogIndex,
-    pub source: JsonValue,
-    pub request: JsonValue,
+    is_proposer: bool,
+    index: noraft::LogIndex,
+    source: JsonValue,
+    request: JsonValue,
+}
+
+impl ApplyAction {
+    pub(crate) fn new(
+        is_proposer: bool,
+        index: noraft::LogIndex,
+        source: JsonValue,
+        request: JsonValue,
+    ) -> Self {
+        Self {
+            is_proposer,
+            index,
+            source,
+            request,
+        }
+    }
+
+    pub fn index(&self) -> noraft::LogIndex {
+        self.index
+    }
+
+    pub fn request(&self) -> nojson::RawJsonValue<'_, '_> {
+        self.request.get()
+    }
+
+    pub fn source(&self) -> Option<nojson::RawJsonValue<'_, '_>> {
+        self.is_proposer.then(|| self.source.get())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
