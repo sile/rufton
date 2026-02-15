@@ -45,9 +45,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
             }
         }
 
-        let (len, src_addr) = sock.recv_from(&mut buf)?;
-        let text = str::from_utf8(&buf[..len])?; // TODO: note
-        let json = nojson::RawJson::parse(text)?;
+        let (json, src_addr) = kvs::recv_request(&sock, &mut buf)?;
         let request = json.value();
 
         let method: &str = request.to_member("method")?.required()?.try_into()?;
@@ -90,12 +88,10 @@ fn handle_request(
     is_proposed: bool,
     request: nojson::RawJsonValue,
 ) -> Result<()> {
-    let result = kvs::apply(machine, request)?;
+    let result = kvs::apply(machine, request);
     if is_proposed {
-        let id: u64 = request.to_member("id")?.required()?.try_into()?;
         let src: SocketAddr = request.to_member("src")?.required()?.try_into()?;
-        let res = format!(r#"{{"jsonrpc":"2.0", "id":{id}, "result":{result}}}"#);
-        sock.send_to(res.as_bytes(), src)?;
+        kvs::send_response(sock, request, result, src)?;
     }
     Ok(())
 }
