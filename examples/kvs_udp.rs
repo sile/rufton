@@ -13,18 +13,18 @@ pub fn main() -> noargs::Result<()> {
     let contact_node = noargs::opt("contact")
         .short('c')
         .take(&mut args)
-        .present_and_then(|a| a.value().parse().map(noraft::NodeId::new))?;
+        .present_and_then(|a| a.value().parse().map(rufton::NodeId::new))?;
 
     if let Some(help) = args.finish()? {
         print!("{help}");
         return Ok(());
     }
 
-    run_node(noraft::NodeId::new(port as u64), contact_node)?;
+    run_node(rufton::NodeId::new(port as u64), contact_node)?;
     Ok(())
 }
 
-fn addr(id: noraft::NodeId) -> SocketAddr {
+fn addr(id: rufton::NodeId) -> SocketAddr {
     ([127, 0, 0, 1], id.get() as u16).into()
 }
 
@@ -62,7 +62,7 @@ fn send_response<T: nojson::DisplayJson>(
     Ok(())
 }
 
-fn run_node(node_id: noraft::NodeId, contact_node: Option<noraft::NodeId>) -> noargs::Result<()> {
+fn run_node(node_id: rufton::NodeId, contact_node: Option<rufton::NodeId>) -> noargs::Result<()> {
     let socket = UdpSocket::bind(addr(node_id))?;
     eprintln!("Started node {}", node_id.get());
 

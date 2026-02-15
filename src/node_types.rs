@@ -1,14 +1,68 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeId(noraft::NodeId);
+
+impl NodeId {
+    pub fn new(node_id: u64) -> Self {
+        Self(noraft::NodeId::new(node_id))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0.get()
+    }
+
+    pub(crate) fn from_inner(node_id: noraft::NodeId) -> Self {
+        Self(node_id)
+    }
+
+    pub(crate) fn into_inner(self) -> noraft::NodeId {
+        self.0
+    }
+}
+
+impl From<u64> for NodeId {
+    fn from(value: u64) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<NodeId> for u64 {
+    fn from(value: NodeId) -> Self {
+        value.get()
+    }
+}
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.get())
+    }
+}
+
+impl nojson::DisplayJson for NodeId {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        self.get().fmt(f)
+    }
+}
+
+impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for NodeId {
+    type Error = nojson::JsonParseError;
+
+    fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
+        let node_id: u64 = value.try_into()?;
+        Ok(Self::new(node_id))
+    }
+}
+
 pub type RecentCommands = std::collections::BTreeMap<noraft::LogIndex, JsonValue>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct ProposalId {
-    node_id: noraft::NodeId,
+    node_id: NodeId,
     generation: u64,
     local_seqno: u64,
 }
 
 impl ProposalId {
-    pub(crate) fn new(node_id: noraft::NodeId, generation: u64, local_seqno: u64) -> Self {
+    pub(crate) fn new(node_id: NodeId, generation: u64, local_seqno: u64) -> Self {
         Self {
             node_id,
             generation,
@@ -16,7 +70,7 @@ impl ProposalId {
         }
     }
 
-    pub(crate) fn is_proposer(&self, node_id: noraft::NodeId, generation: u64) -> bool {
+    pub(crate) fn is_proposer(&self, node_id: NodeId, generation: u64) -> bool {
         self.node_id == node_id && self.generation == generation
     }
 }
@@ -33,7 +87,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for ProposalId {
     fn try_from(value: nojson::RawJsonValue<'text, 'raw>) -> Result<Self, Self::Error> {
         let [node_id, generation, local_seqno] = value.try_into()?;
         Ok(ProposalId {
-            node_id: noraft::NodeId::new(node_id),
+            node_id: NodeId::new(node_id),
             generation,
             local_seqno,
         })
@@ -94,7 +148,7 @@ impl std::fmt::Display for JsonValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum QueryMessage {
     Redirect {
-        from: noraft::NodeId,
+        from: NodeId,
         proposal_id: ProposalId,
         request: JsonValue,
     },
@@ -148,7 +202,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for QueryMessage {
                 let request_json = value.to_member("request")?.required()?;
                 let request = JsonValue::new(request_json);
                 Ok(QueryMessage::Redirect {
-                    from: noraft::NodeId::new(from),
+                    from: NodeId::new(from),
                     proposal_id,
                     request,
                 })
@@ -225,8 +279,8 @@ pub enum Action {
     SetTimeout(noraft::Role),
     AppendStorageEntry(JsonValue),
     BroadcastMessage(JsonValue),
-    SendMessage(noraft::NodeId, JsonValue),
-    SendSnapshot(noraft::NodeId),
+    SendMessage(NodeId, JsonValue),
+    SendSnapshot(NodeId),
     NotifyEvent(Event),
     Apply {
         is_proposer: bool,
@@ -273,7 +327,7 @@ impl std::fmt::Display for Event {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageEntry {
     Term(noraft::Term),
-    VotedFor(Option<noraft::NodeId>),
+    VotedFor(Option<NodeId>),
     NodeGeneration(u64),
 }
 
@@ -311,7 +365,7 @@ impl<'text, 'raw> TryFrom<nojson::RawJsonValue<'text, 'raw>> for StorageEntry {
             }
             "VotedFor" => {
                 let node_id: Option<u64> = value.to_member("node_id")?.try_into()?;
-                Ok(StorageEntry::VotedFor(node_id.map(noraft::NodeId::new)))
+                Ok(StorageEntry::VotedFor(node_id.map(NodeId::new)))
             }
             "NodeGeneration" => {
                 let generation = value.to_member("generation")?.required()?.try_into()?;

@@ -2,7 +2,8 @@
 mod node_persist;
 
 use crate::node_types::{
-    Action, Command, Event, JsonValue, ProposalId, QueryMessage, RecentCommands, StorageEntry,
+    Action, Command, Event, JsonValue, NodeId, ProposalId, QueryMessage, RecentCommands,
+    StorageEntry,
 };
 
 #[derive(Debug, Clone)]
@@ -19,9 +20,9 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn start(id: noraft::NodeId) -> Self {
+    pub fn start(id: NodeId) -> Self {
         let mut action_queue = std::collections::VecDeque::new();
-        let inner = noraft::Node::start(id);
+        let inner = noraft::Node::start(id.into_inner());
         let last_role = inner.role();
         let entry = StorageEntry::NodeGeneration(inner.generation().get());
         let value = JsonValue::new(entry);
@@ -38,27 +39,28 @@ impl Node {
         }
     }
 
-    pub fn id(&self) -> noraft::NodeId {
-        self.inner.id()
+    pub fn id(&self) -> NodeId {
+        NodeId::from_inner(self.inner.id())
     }
 
-    pub fn members(&self) -> impl Iterator<Item = noraft::NodeId> {
-        self.inner.config().unique_nodes()
+    pub fn members(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.inner.config().unique_nodes().map(NodeId::from_inner)
     }
 
-    pub fn peers(&self) -> impl Iterator<Item = noraft::NodeId> {
+    pub fn peers(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.members().filter(|id| *id != self.id())
     }
 
-    pub fn init_cluster(&mut self, members: &[noraft::NodeId]) -> bool {
+    pub fn init_cluster(&mut self, members: &[NodeId]) -> bool {
         if self.initialized {
             return false;
         }
-        if !members.contains(&self.inner.id()) {
+        if !members.contains(&self.id()) {
             return false;
         }
 
-        self.inner.create_cluster(members);
+        let members: Vec<_> = members.iter().copied().map(NodeId::into_inner).collect();
+        self.inner.create_cluster(&members);
         self.maybe_emit_role_events();
         self.initialized = true;
 
@@ -184,7 +186,7 @@ impl Node {
     // TODO: refactor
     fn propose_query_for_redirect(
         &mut self,
-        from: noraft::NodeId,
+        from: NodeId,
         proposal_id: ProposalId,
         request: JsonValue,
     ) {
@@ -210,7 +212,7 @@ impl Node {
 
     fn next_proposal_id(&mut self) -> ProposalId {
         let proposal_id = ProposalId::new(
-            self.inner.id(),
+            self.id(),
             self.inner.generation().get(),
             self.local_command_seqno,
         );
@@ -218,8 +220,9 @@ impl Node {
         proposal_id
     }
 
-    fn leader_id(&self) -> Option<noraft::NodeId> {
+    fn leader_id(&self) -> Option<NodeId> {
         let leader = self.inner.voted_for()?;
+        let leader = NodeId::from_inner(leader);
         (leader != self.id()).then_some(leader)
     }
 
@@ -361,7 +364,7 @@ impl Node {
                     self.enqueue_storage_entry(StorageEntry::Term(term));
                 }
                 noraft::Action::SaveVotedFor => {
-                    let voted_for = self.inner.voted_for();
+                    let voted_for = self.inner.voted_for().map(NodeId::from_inner);
                     self.enqueue_storage_entry(StorageEntry::VotedFor(voted_for));
                 }
                 noraft::Action::BroadcastMessage(message) => {
@@ -374,10 +377,10 @@ impl Node {
                 }
                 noraft::Action::SendMessage(node_id, message) => {
                     let message = self.encode_message(&message);
-                    self.push_action(Action::SendMessage(node_id, message));
+                    self.push_action(Action::SendMessage(NodeId::from_inner(node_id), message));
                 }
                 noraft::Action::InstallSnapshot(dst) => {
-                    after_commit_actions.push(Action::SendSnapshot(dst));
+                    after_commit_actions.push(Action::SendSnapshot(NodeId::from_inner(dst)));
                 }
             }
         }

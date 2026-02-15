@@ -9,14 +9,14 @@ pub fn main() -> noargs::Result<()> {
         .example("9000")
         .take(&mut args)
         .then(|a| a.value().parse())?;
-    let init_node_ids: Option<Vec<noraft::NodeId>> = noargs::opt("init")
+    let init_node_ids: Option<Vec<rufton::NodeId>> = noargs::opt("init")
         .take(&mut args)
         .present_and_then(|a| -> Result<_, nojson::JsonParseError> {
             let ids: nojson::Json<Vec<_>> = a.value().parse()?;
             Ok(ids
                 .0
                 .into_iter()
-                .map(noraft::NodeId::new)
+                .map(rufton::NodeId::new)
                 .collect::<Vec<_>>())
         })?;
 
@@ -25,11 +25,11 @@ pub fn main() -> noargs::Result<()> {
         return Ok(());
     }
 
-    run(noraft::NodeId::new(port as u64), init_node_ids)?;
+    run(rufton::NodeId::new(port as u64), init_node_ids)?;
     Ok(())
 }
 
-fn addr(id: noraft::NodeId) -> SocketAddr {
+fn addr(id: rufton::NodeId) -> SocketAddr {
     ([127, 0, 0, 1], id.get() as u16).into()
 }
 
@@ -44,8 +44,8 @@ struct Kvs {
 
 impl Kvs {
     fn new(
-        node_id: noraft::NodeId,
-        init_node_ids: Option<Vec<noraft::NodeId>>,
+        node_id: rufton::NodeId,
+        init_node_ids: Option<Vec<rufton::NodeId>>,
     ) -> noargs::Result<Self> {
         let socket = std::net::UdpSocket::bind(addr(node_id))?;
         eprintln!("Started node {}", node_id.get());
@@ -218,7 +218,7 @@ impl Kvs {
     }
 }
 
-fn run(node_id: noraft::NodeId, init_node_ids: Option<Vec<noraft::NodeId>>) -> noargs::Result<()> {
+fn run(node_id: rufton::NodeId, init_node_ids: Option<Vec<rufton::NodeId>>) -> noargs::Result<()> {
     let mut kvs = Kvs::new(node_id, init_node_ids)?;
     kvs.run_loop()
 }

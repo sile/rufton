@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
-use noraft::NodeId;
-use rufton::{JsonValue, Node, Result};
+use rufton::{JsonValue, Node, NodeId, Result};
 
 type KvsMachine = std::collections::HashMap<String, usize>;
 type Socket = std::net::UdpSocket;
@@ -19,7 +18,7 @@ fn run(addr: std::net::SocketAddr) -> rufton::Result<()> {
     let mut sock = Socket::bind(addr)?;
     let mut machine = KvsMachine::new();
 
-    let node_id = noraft::NodeId::new(addr.port() as u64);
+    let node_id = NodeId::new(addr.port() as u64);
     let mut node = rufton::Node::start(node_id);
     let members = [NodeId::new(9000), NodeId::new(9001), NodeId::new(9002)];
     if node_id == members[0] {

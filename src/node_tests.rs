@@ -1,4 +1,4 @@
-use crate::{Action, JsonValue, Node, StorageEntry};
+use crate::{Action, JsonValue, Node, NodeId, StorageEntry};
 
 #[test]
 fn init_cluster() {
@@ -180,7 +180,7 @@ fn create_snapshot_includes_log_entries_suffix() {
     assert_eq!(count, 1);
 }
 
-fn run_actions(nodes: &mut [Node]) -> Vec<(noraft::NodeId, Action)> {
+fn run_actions(nodes: &mut [Node]) -> Vec<(NodeId, Action)> {
     let mut actions = Vec::new();
     for _ in 0..1000 {
         let mut did_something = false;
@@ -423,6 +423,28 @@ fn set_leader_timeout_action() -> Action {
     Action::SetTimeout(noraft::Role::Leader)
 }
 
-fn node_id(n: u64) -> noraft::NodeId {
-    noraft::NodeId::new(n)
+fn node_id(n: u64) -> NodeId {
+    NodeId::new(n)
+}
+
+#[test]
+fn node_id_conversions() {
+    let node_id = NodeId::new(42);
+    assert_eq!(node_id.get(), 42);
+    assert_eq!(node_id.to_string(), "42");
+
+    let from_u64: NodeId = 7_u64.into();
+    let to_u64: u64 = from_u64.into();
+    assert_eq!(to_u64, 7);
+}
+
+#[test]
+fn node_id_nojson_roundtrip() {
+    let node_id = NodeId::new(9);
+    let text = nojson::Json(node_id).to_string();
+    assert_eq!(text, "9");
+
+    let raw = nojson::RawJsonOwned::parse(text).expect("valid JSON");
+    let parsed: NodeId = raw.value().try_into().expect("valid node id");
+    assert_eq!(parsed, node_id);
 }

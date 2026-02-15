@@ -10,7 +10,7 @@ pub mod storage;
 pub use crate::jsonrpc::{
     JsonRpcPredefinedError, JsonRpcRequest, JsonRpcRequestId, JsonRpcResponse,
 };
-pub use crate::node::{Action, Event, JsonValue, Node, RecentCommands, StorageEntry};
+pub use crate::node::{Action, Event, JsonValue, Node, NodeId, RecentCommands, StorageEntry};
 pub use crate::storage::FileStorage;
 pub use error::Error;
 
