@@ -332,7 +332,7 @@ impl ApplyAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    SetTimeout(noraft::Role),
+    SetTimeout,
     AppendStorageEntry(JsonValue),
     Broadcast(JsonValue),
     Send(NodeId, JsonValue),
@@ -341,24 +341,36 @@ pub enum Action {
     Apply(ApplyAction),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum NodeRole {
+    Follower,
+    Candidate,
+    Leader,
+}
+
+impl NodeRole {
+    pub(crate) fn from_inner(role: noraft::Role) -> Self {
+        match role {
+            noraft::Role::Follower => Self::Follower,
+            noraft::Role::Candidate => Self::Candidate,
+            noraft::Role::Leader => Self::Leader,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    RoleChanged {
-        from: noraft::Role,
-        to: noraft::Role,
-    },
-    BecameLeader {
-        term: noraft::Term,
-    },
+    RoleChanged { from: NodeRole, to: NodeRole },
+    BecameLeader { term: noraft::Term },
 }
 
 impl std::fmt::Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn role_label(role: noraft::Role) -> &'static str {
+        fn role_label(role: NodeRole) -> &'static str {
             match role {
-                noraft::Role::Follower => "Follower",
-                noraft::Role::Candidate => "Candidate",
-                noraft::Role::Leader => "Leader",
+                NodeRole::Follower => "Follower",
+                NodeRole::Candidate => "Candidate",
+                NodeRole::Leader => "Leader",
             }
         }
 

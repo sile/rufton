@@ -137,7 +137,7 @@ fn create_snapshot_includes_log_entries_suffix() {
 
     let leader_index = nodes
         .iter()
-        .position(|node| node.inner.role().is_leader())
+        .position(|node| node.is_leader())
         .expect("leader should exist");
     let follower_index = 1 - leader_index;
 
@@ -256,7 +256,7 @@ fn propose_command_to_non_leader_node() {
 
     let leader_index = nodes
         .iter()
-        .position(|node| node.inner.role().is_leader())
+        .position(|node| node.is_leader())
         .expect("leader should exist");
     let follower_index = 1 - leader_index;
 
@@ -322,7 +322,7 @@ fn propose_query() {
 
     let leader_index = nodes
         .iter()
-        .position(|node| node.inner.role().is_leader())
+        .position(|node| node.is_leader())
         .expect("leader should exist");
 
     // Propose a query on the leader
@@ -362,7 +362,7 @@ fn propose_query_on_non_leader_node() {
 
     let leader_index = nodes
         .iter()
-        .position(|node| node.inner.role().is_leader())
+        .position(|node| node.is_leader())
         .expect("leader should exist");
     let follower_index = 1 - leader_index;
 
@@ -438,7 +438,7 @@ fn next_non_event_action(node: &mut Node) -> Option<Action> {
 }
 
 fn set_leader_timeout_action() -> Action {
-    Action::SetTimeout(noraft::Role::Leader)
+    Action::SetTimeout
 }
 
 fn node_id(n: u64) -> NodeId {

@@ -2,7 +2,7 @@
 mod node_persist;
 
 use crate::node_types::{
-    Action, ApplyAction, Command, Event, JsonValue, NodeId, ProposalId, QueryMessage,
+    Action, ApplyAction, Command, Event, JsonValue, NodeId, NodeRole, ProposalId, QueryMessage,
     RecentCommands, StorageEntry,
 };
 
@@ -49,6 +49,18 @@ impl Node {
 
     pub fn peers(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.members().filter(|id| *id != self.id())
+    }
+
+    pub fn is_leader(&self) -> bool {
+        self.inner.role().is_leader()
+    }
+
+    pub fn is_follower(&self) -> bool {
+        self.inner.role().is_follower()
+    }
+
+    pub fn is_candidate(&self) -> bool {
+        self.inner.role().is_candidate()
     }
 
     pub fn init_cluster(&mut self, members: &[NodeId]) -> bool {
@@ -113,7 +125,7 @@ impl Node {
             return;
         }
 
-        if !self.inner.role().is_leader() {
+        if !self.is_leader() {
             if let Some(maybe_leader) = self.leader_id() {
                 self.push_action(Action::Send(maybe_leader, command));
             } else {
@@ -171,7 +183,7 @@ impl Node {
     }
 
     fn propose_query_inner(&mut self, proposal_id: ProposalId, request: JsonValue) {
-        if self.inner.role().is_leader() {
+        if self.is_leader() {
             let position = self.leader_query_position();
             self.pending_queries
                 .insert((position, proposal_id), request);
@@ -196,7 +208,7 @@ impl Node {
         proposal_id: ProposalId,
         request: JsonValue,
     ) {
-        if self.inner.role().is_leader() {
+        if self.is_leader() {
             let position = self.leader_query_position();
             let query_message = QueryMessage::Proposed {
                 proposal_id,
@@ -333,7 +345,7 @@ impl Node {
     }
 
     fn maybe_heartbeat_on_leader(&mut self) {
-        if self.applied_index < self.inner.commit_index() && self.inner.role().is_leader() {
+        if self.applied_index < self.inner.commit_index() && self.is_leader() {
             // Invokes heartbeat to notify the new commit position to followers as fast as possible
             //
             // This would affect the result of inner.actions_mut(). So call it before that (minor optimization).
@@ -350,8 +362,8 @@ impl Node {
         let prev_role = self.last_role;
         self.last_role = role;
         self.push_action(Action::NotifyEvent(Event::RoleChanged {
-            from: prev_role,
-            to: role,
+            from: NodeRole::from_inner(prev_role),
+            to: NodeRole::from_inner(role),
         }));
         if role.is_leader() {
             self.push_action(Action::NotifyEvent(Event::BecameLeader {
@@ -393,8 +405,7 @@ impl Node {
     }
 
     fn handle_set_election_timeout(&mut self) {
-        let role = self.inner.role();
-        self.push_action(Action::SetTimeout(role));
+        self.push_action(Action::SetTimeout);
     }
 
     fn emit_commit_actions(&mut self) {

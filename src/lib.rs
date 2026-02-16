@@ -11,7 +11,7 @@ pub use crate::jsonrpc::{
     JsonRpcPredefinedError, JsonRpcRequest, JsonRpcRequestId, JsonRpcResponse,
 };
 pub use crate::node::{
-    Action, ApplyAction, Event, JsonValue, Node, NodeId, RecentCommands, StorageEntry,
+    Action, ApplyAction, Event, JsonValue, Node, NodeId, NodeRole, RecentCommands, StorageEntry,
 };
 pub use crate::storage::FileStorage;
 pub use error::Error;

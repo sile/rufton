@@ -89,7 +89,7 @@ fn run_node(node_id: rufton::NodeId, contact_node: Option<rufton::NodeId>) -> no
         }
     }
 
-    let mut timeout_time = next_timeout_time(noraft::Role::Follower);
+    let mut timeout_time = next_timeout_time(&node);
     let mut buf = [0u8; 65535];
     loop {
         let now = std::time::Instant::now();
@@ -147,8 +147,8 @@ fn drain_actions(
                 // TODO: take snapshot if node.recent_commits().len() gets too long
                 unreachable!()
             }
-            rufton::Action::SetTimeout(role) => {
-                *timeout_time = next_timeout_time(role);
+            rufton::Action::SetTimeout => {
+                *timeout_time = next_timeout_time(node);
             }
             rufton::Action::Broadcast(m) => {
                 for dst in node.members() {
@@ -210,11 +210,15 @@ fn drain_actions(
     Ok(())
 }
 
-fn next_timeout_time(role: noraft::Role) -> std::time::Instant {
-    let ms = match role {
-        noraft::Role::Leader => 50,
-        noraft::Role::Follower => 150,
-        noraft::Role::Candidate => 150 + rand::random::<u64>() % 50,
+fn next_timeout_time(node: &rufton::Node) -> std::time::Instant {
+    let ms = if node.is_leader() {
+        50
+    } else if node.is_follower() {
+        150
+    } else if node.is_candidate() {
+        150 + rand::random::<u64>() % 50
+    } else {
+        unreachable!()
     };
     std::time::Instant::now() + std::time::Duration::from_millis(ms)
 }
