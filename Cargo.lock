@@ -172,8 +172,7 @@ checksum = "a86b88848c0847cfa64a48ad5c776ed2dbb0cc8fe1241ab20939a101ff7e1465"
 [[package]]
 name = "noraft"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51cdb644657c4610962307e4e8218efd939dc3ffa299acafbef9d69ab28e28f6"
+source = "git+https://github.com/sile/noraft.git#c57d4c04c77b807557d6decf9736be84323067c3"
 
 [[package]]
 name = "once_cell"

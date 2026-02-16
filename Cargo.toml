@@ -11,7 +11,7 @@ readme = "README.md"
 
 [dependencies]
 nojson = "0.3.6"
-noraft = "0.4.0"
+noraft = {git = "https://github.com/sile/noraft.git"}
 
 [dev-dependencies]
 noargs = "0.4.2"
